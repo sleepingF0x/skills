@@ -35,11 +35,18 @@
 ```bash
 git clone https://github.com/sleepingF0x/skills.git ~/.agents
 
-# 把需要的 skill 软链进 Claude Code 和 Codex
+# Claude Code：三个自建 skill 都要
 for s in implement-codex accept-issue land-issue; do
   ln -sfn ~/.agents/skills/$s ~/.claude/skills/$s
+done
+
+# Codex：只要验收和收尾两个。implement-codex 是让 Claude 委派给 Codex 的，
+# Codex 自己拿到它就成了自己委派自己，所以不链。
+for s in accept-issue land-issue; do
   ln -sfn ~/.agents/skills/$s ~/.codex/skills/$s
 done
 ```
 
 第三方 skill 同理软链，或者用 `npx skills add <source>` 从上游重装一份，那样拿到的是最新版。
+
+注意 `npx skills`（1.5.16 起）是直接把 skill **拷贝**进 agent 目录，不再存到 `~/.agents/skills` 再软链。所以每次 `skills add` 之后都要确认 `~/.claude/skills/<name>` 还是软链：变成实体目录就说明这个 skill 漂到版本控制外面去了，得挪回 `~/.agents/skills` 再软链回来。
