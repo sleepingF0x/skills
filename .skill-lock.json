@@ -287,6 +287,26 @@
       "pluginName": "waza-ui",
       "installedAt": "2026-07-06T08:13:26.830Z",
       "updatedAt": "2026-07-06T08:13:26.830Z"
+    },
+    "to-spec": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/mattpocock/skills.git",
+      "skillPath": "skills/engineering/to-spec/SKILL.md",
+      "skillFolderHash": "b2f449aa3da9578b08dcea74afd9adee20285586",
+      "pluginName": "mattpocock-skills",
+      "installedAt": "2026-07-12T05:24:23.801Z",
+      "updatedAt": "2026-07-12T05:24:23.801Z"
+    },
+    "to-tickets": {
+      "source": "mattpocock/skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/mattpocock/skills.git",
+      "skillPath": "skills/engineering/to-tickets/SKILL.md",
+      "skillFolderHash": "c0bc0e58663eec76e769c1496fe124be4545a2ff",
+      "pluginName": "mattpocock-skills",
+      "installedAt": "2026-07-12T05:24:58.428Z",
+      "updatedAt": "2026-07-12T05:24:58.428Z"
     }
   },
   "dismissed": {
