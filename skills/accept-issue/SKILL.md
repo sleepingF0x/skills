@@ -10,7 +10,9 @@ Judge whether an implemented issue actually delivers what was asked, then either
 
 **Hard rule: the acceptance session must not be the implementation session.** The implementer carries its own rationalizations ("this is obviously what the issue meant"); a cold-start judge can only re-derive the requirement from the issue text, which is the point.
 
-Division of labor: **Codex (gpt-5.6-sol) is the judge** — it runs verification, exercises the behavior, and produces per-criterion verdicts with evidence, in its own fresh thread. **You are the clerk** — you assemble the dossier, forward it verbatim, check that the verdict carries evidence, and execute the tracker operations. You do not judge, and you do not overrule the judge.
+Division of labor: **Codex (gpt-5.6-sol) is the judge by default** — it runs verification, exercises the behavior, and produces per-criterion verdicts with evidence, in its own fresh thread. **You are the clerk** — you assemble the dossier, forward it verbatim, check that the verdict carries evidence, and execute the tracker operations. You do not judge, and you do not overrule the judge. Step 2.5 is where you check whether this issue is one of the ones that needs a Claude judge instead.
+
+Why a same-model judge is sound here, even though Codex wrote the code: the judge is not re-reviewing Codex's diff — `/code-review` already did that, with Claude's priors against Codex's. What the judge tests is whether the delivered behavior satisfies the **issue**, and the issue was written by Claude. So the cross-model check runs both ways across the pipeline: Claude audits Codex's code, Codex audits Claude's spec — and a judge with no stake in that spec is the only thing positioned to catch a spec that was wrong from the start. What a fresh thread cannot remove is shared priors: implementer and judge read the criteria through the same model. That only bites where the judge has to *interpret* rather than *observe*, which is exactly what step 2.5 routes away.
 
 The issue tracker conventions should have been provided to you — see `docs/agents/issue-tracker.md`; run `/setup-matt-pocock-skills` if it's missing. All tracker operations below follow that file.
 
@@ -26,6 +28,19 @@ Use the argument (`#N`, URL, or path). If none was given, infer it from issue re
 - The unpushed commits that reference the issue (SHAs) — that is the work under acceptance.
 - The parent PRD issue body, if any, for intent.
 - The repo's verification entrypoint (a `verify`/`check` script under `scripts/`, or the test suite named in `AGENTS.md`/`CLAUDE.md`) and how to run it.
+
+### 2.5 Pick the judge
+
+Read the acceptance criteria you just assembled and check them against the triggers below. **Any one of these fires → the judge is Claude, not Codex.** State which trigger fired and why, then judge in this session against the same evidence rules as step 3.
+
+- **A criterion cannot be reduced to "run X, observe Y."** It asks whether something is clearer, safer, more maintainable, better structured, less surprising. The judge has to interpret intent rather than observe an output, and interpretation is exactly where implementer and judge sharing a model stops being harmless.
+- **The diff touches money, keys, auth, or anything irreversible** — payments, signing, permissions, migrations, deletes, production config. Here the cost of a correlated blind spot is not a rework loop.
+- **Codex flagged a spec bug, or called the criteria ambiguous, on a previous pass.** Its own reading of the spec is now in question; do not ask the same model to adjudicate that.
+- **The issue is back for acceptance after a failed one.** A criterion both the implementer and the judge misread the first time will not fix itself by rerunning the same model.
+
+Otherwise the criteria are mechanically checkable and the default holds: Codex judges, and evidence — not the judge's priors — carries the verdict.
+
+Escalating is cheap; the human spot-check is the last line and should not be the first real one. When in doubt, escalate.
 
 ### 3. Delegate the judging
 
