@@ -1,9 +1,9 @@
-# 白名单模式：默认全部忽略，只跟踪自建 skill。
-# 安装器（npx skills）管理的 skill 由 .skill-lock.json 锁定，不进版本库。
-/*
-!/.gitignore
-!/README.md
-!/skills
-/skills/*
-!/skills/land-issue
-!/skills/accept-issue
+# 全量跟踪 skills/ 下的所有 skill（自建 + 第三方），仓库根即 ~/.agents。
+# 只排除系统噪声和安装器缓存。
+
+.DS_Store
+*.log
+node_modules/
+__pycache__/
+*.pyc
+.venv/

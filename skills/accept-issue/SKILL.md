@@ -1,6 +1,6 @@
 ---
 name: accept-issue
-description: "Acceptance pass for an implemented issue: run verification, exercise the behavior for real, judge each acceptance criterion with evidence, then hand off to /land-issue on pass or send it back with findings on fail. Must run in a fresh session — never the session that implemented the issue."
+description: "Acceptance pass for an implemented issue: delegate the judging to Codex (gpt-5.6-sol) — it runs verification, exercises the behavior, judges each criterion with evidence — then land on pass or send back with findings on fail. Must run in a fresh session — never the session that implemented the issue."
 disable-model-invocation: true
 ---
 
@@ -8,9 +8,9 @@ disable-model-invocation: true
 
 Judge whether an implemented issue actually delivers what was asked, then either land it or send it back.
 
-**Hard rule: the acceptance session must not be the implementation session.** The implementer carries its own rationalizations ("this is obviously what the issue meant"); a cold-start session can only re-derive the requirement from the issue text, which is the point. The acceptance criteria were authored by a different model than the implementer, so judging against them is already a cross-check — but only if the judge reads them fresh.
+**Hard rule: the acceptance session must not be the implementation session.** The implementer carries its own rationalizations ("this is obviously what the issue meant"); a cold-start judge can only re-derive the requirement from the issue text, which is the point.
 
-The default acceptor is a fresh Codex session. For high-stakes issues, escalate to the Claude session that produced the PRD: it adds a cross-model perspective and still holds the original intent context, at the cost of Claude tokens.
+Division of labor: **Codex (gpt-5.6-sol) is the judge** — it runs verification, exercises the behavior, and produces per-criterion verdicts with evidence, in its own fresh thread. **You are the clerk** — you assemble the dossier, forward it verbatim, check that the verdict carries evidence, and execute the tracker operations. You do not judge, and you do not overrule the judge.
 
 The issue tracker conventions should have been provided to you — see `docs/agents/issue-tracker.md`; run `/setup-matt-pocock-skills` if it's missing. All tracker operations below follow that file.
 
@@ -20,36 +20,55 @@ The issue tracker conventions should have been provided to you — see `docs/age
 
 Use the argument (`#N`, URL, or path). If none was given, infer it from issue references in the unpushed commit messages. If more than one candidate, ask the user which to accept.
 
-### 2. Gather the evidence
+### 2. Assemble the judge's dossier
 
-- Read the issue body (acceptance criteria) and all comments.
-- Diff the unpushed commits that reference the issue — that is the work under acceptance.
-- Read the parent PRD issue for intent. If this session happens to contain the original requirements conversation (escalated acceptance in the Claude feature session), that intent outranks the issue text.
+- The issue body and **all comments, verbatim** — do not summarize or interpret; the judge must re-derive the requirement from the source text, and your paraphrase would smuggle in an interpretation.
+- The unpushed commits that reference the issue (SHAs) — that is the work under acceptance.
+- The parent PRD issue body, if any, for intent.
+- The repo's verification entrypoint (a `verify`/`check` script under `scripts/`, or the test suite named in `AGENTS.md`/`CLAUDE.md`) and how to run it.
 
-### 3. Verify mechanically
+### 3. Delegate the judging
 
-Run the repo's verification entrypoint (a `verify`/`check` script under `scripts/`, or the test suite named in `AGENTS.md`/`CLAUDE.md`). Failure → immediate reject; skip to step 6.
+Run Codex **directly via `codex exec`** — not through the codex plugin subagent. The plugin runtime (`codex-companion.mjs`) hard-codes its sandbox to `read-only`/`workspace-write` with no escape hatch, which cannot reach the Docker socket; any repo whose verification entrypoint runs in containers dead-ends there and the judging cycle is wasted.
 
-### 4. Exercise the behavior
+Write the dossier + judging instructions to a scratchpad file, then launch in the background (a full suite plus probes exceeds foreground command timeouts):
 
-Green tests are necessary, not sufficient. Actually drive the changed behavior end-to-end — run the CLI, hit the endpoint, execute the script — and observe the output. Prefer inputs the tests did *not* use.
+    codex exec --sandbox danger-full-access \
+      --model gpt-5.6-sol -c model_reasoning_effort='"xhigh"' \
+      --output-last-message <scratchpad>/issueN-verdict.md \
+      - < <scratchpad>/issueN-dossier.md
 
-### 5. Judge each criterion — evidence is mandatory
+`xhigh` is the default for acceptance judging — the judge probes beyond the committed tests, and a shallow judge rubber-stamps. Always pass the effort override explicitly — never rely on the local codex config default, which is not `xhigh` and can change under you.
 
-For every acceptance criterion, record a verdict **with the evidence attached**: the exact command you ran and the output you observed for a **pass**; expected vs actual with a concrete repro for a **fail**. A verdict without evidence is not a verdict — the human reading the report trusts the evidence, not the conclusion. Then judge one level up: does the implementation match the *intent*, not just the letter? If a criterion itself seems to misencode the intent (the issue was written wrong), do not silently pass or fail it — flag it to the user; that is a spec bug, not an implementation bug.
+`danger-full-access` exists solely so the judge can reach Docker and the network for the verification entrypoint. It means the judge runs **unsandboxed** — the judging instructions carry the full weight of confinement, so spell the restrictions out verbatim every time (see the bullet below); after the run, `git status` in step 4 is the enforcement check.
 
-### 6. Verdict and handoff
+The judging instructions must require Codex to:
 
-**All criteria pass:**
+- Run the verification entrypoint first; any failure is an immediate overall **reject**.
+- Exercise the changed behavior end-to-end — run the CLI, hit the endpoint, execute the script — preferring inputs the tests did **not** use. Green tests are necessary, not sufficient.
+- Judge **every** acceptance criterion with evidence attached: exact command + observed output for a pass; expected vs actual with a concrete repro for a fail.
+- Judge one level up: does the implementation match the *intent*, not just the letter? A criterion that seems to misencode the intent is flagged as a **spec bug**, never silently passed or failed.
+- Run commands freely but modify **no source files** — the working tree must be left exactly as found. Since the sandbox is fully open, state the confinement explicitly: no commits, no pushes, no issue-tracker writes, nothing modified outside scratch space; probe scripts live outside the repo tree (`/tmp`, or the container's `/tmp` for container-based repos).
+- End with a structured verdict: per-criterion PASS/FAIL with evidence, overall verdict, any spec-bug flags, and the final `git status --porcelain` output.
+
+### 4. Check the verdict, not the judgment
+
+- `git status` — if Codex modified tracked files, the run is void: report it to the user; do not clean up silently.
+- Every criterion must carry evidence. A verdict without evidence is not a verdict — resume the Codex session (`codex exec resume <session-id>`, the id is printed in the run header) demanding the missing evidence; never fill it in yourself.
+- Do not re-judge or overrule. If you believe the verdict is wrong, put the disagreement to the user with both sides' evidence and stop.
+
+### 5. Verdict and handoff
+
+**Overall pass:**
 1. Comment the acceptance report on the issue: per-criterion verdicts with their evidence, one line on how the behavior was exercised beyond the tests.
 2. Invoke `/land-issue #N` to push, summarize, and close.
 3. Show the user the acceptance report in the session — they spot-check the evidence, they don't re-verify.
 
 **Any criterion fails:**
 1. Comment the failures on the issue: expected vs actual, concrete repro steps, pointers into the code where useful. Write it for a cold-start implementer — the fixing session has no memory of this one.
-2. Ensure the issue carries the `ready-for-agent` label and stays open. Do **not** push, do **not** close, do **not** fix it yourself — the fix belongs to a fresh `/implement #N` session, or acceptance stops being acceptance.
-3. Tell the user to re-run `codex "/implement #N"`; the fix session will pick up the comment.
+2. Ensure the issue carries the `ready-for-agent` label and stays open. Do **not** push, do **not** close, do **not** fix it yourself — the fix belongs to a fresh `/implement-codex #N` session, or acceptance stops being acceptance.
+3. Tell the user to re-run `/implement-codex #N`; the fix session will pick up the comment.
 
-**Criteria are ambiguous or the spec itself is wrong:** stop and put the question to the user before any verdict. If the issue needs rewording, update it (or label `needs-info`) so the next implementation pass starts from a correct spec.
+**Spec bug flagged, or criteria ambiguous:** stop and put the question to the user before any verdict. If the issue needs rewording, update it (or label `needs-info`) so the next implementation pass starts from a correct spec.
 
 Never close the parent PRD issue — that stays with the human.
