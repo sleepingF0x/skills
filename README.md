@@ -28,7 +28,7 @@
 | [blader/humanizer](https://github.com/blader/humanizer)（1，MIT） | `humanizer-zh`，歸藏的中文译本 |
 | [microsoft/playwright-cli](https://github.com/microsoft/playwright-cli)（1，Apache-2.0） | `playwright` |
 
-`.skill-lock.json` 是 `npx skills` 安装器的状态文件，记录第三方 skill 装自哪里。它目前是过期的：列着一批早就删掉的 skill，也没记上 `to-spec` 和 `to-tickets`。全量跟踪之后它不再是恢复的必要条件，留着只作参考。
+`.skill-lock.json` 是 `npx skills` 安装器的状态文件，记录第三方 skill 装自哪里，已清理掉指向早年删除 skill 的死条目。它只覆盖 29 个由安装器装的 skill；三个自建的本来就不归它管，另外四个（`to-spec` `to-tickets` `humanizer-zh` `playwright`）当初没走安装器，所以也不在里面。全量跟踪之后它不再是恢复的必要条件，留着只作参考。
 
 ## 新机器怎么装
 
