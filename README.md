@@ -18,17 +18,17 @@
 
 ## 第三方
 
-下面 34 个不是我的作品，原样收录只是为了多机同步。版权归各自作者，随各自的许可证分发。要用请去上游仓库，那里才有更新。
+下面 33 个不是我的作品，原样收录只是为了多机同步。版权归各自作者，随各自的许可证分发。要用请去上游仓库，那里才有更新。有上游的一律跟上游走：上游改了就同步，上游删了就删。
 
 | 来源 | skill |
 |---|---|
 | [mattpocock/skills](https://github.com/mattpocock/skills)（22） | `ask-matt` `code-review` `codebase-design` `diagnosing-bugs` `domain-modeling` `grill-me` `grill-with-docs` `grilling` `handoff` `implement` `improve-codebase-architecture` `prototype` `research` `resolving-merge-conflicts` `setup-matt-pocock-skills` `tdd` `teach` `to-spec` `to-tickets` `triage` `wayfinder` `writing-great-skills` |
-| [tw93/Waza](https://github.com/tw93/Waza)（9） | `check` `design` `health` `hunt` `learn` `read` `think` `ui` `write` |
+| [tw93/Waza](https://github.com/tw93/Waza)（8） | `check` `health` `hunt` `learn` `read` `think` `ui` `write` |
 | [tw93/kami](https://github.com/tw93/kami)（1） | `kami` |
 | [blader/humanizer](https://github.com/blader/humanizer)（1，MIT） | `humanizer-zh`，歸藏的中文译本 |
 | [microsoft/playwright-cli](https://github.com/microsoft/playwright-cli)（1，Apache-2.0） | `playwright` |
 
-`.skill-lock.json` 是 `npx skills` 安装器的状态文件，记录第三方 skill 装自哪里，已清理掉指向早年删除 skill 的死条目。它覆盖 31 个由安装器装的 skill；三个自建的本来就不归它管，另外三个（`humanizer-zh` `playwright` `resolving-merge-conflicts`）没走安装器，所以也不在里面。全量跟踪之后它不再是恢复的必要条件，留着只作参考。
+`.skill-lock.json` 是 `npx skills` 安装器的状态文件，记录第三方 skill 装自哪里，已清理掉指向早年删除 skill 的死条目。它覆盖 30 个由安装器装的 skill；三个自建的本来就不归它管，另外三个（`humanizer-zh` `playwright` `resolving-merge-conflicts`）没走安装器，所以也不在里面。全量跟踪之后它不再是恢复的必要条件，留着只作参考。
 
 mattpocock 上游在 2026-07 把 skill 按用途分了桶，路径从 `skills/<name>/` 变成 `skills/<bucket>/<name>/`（`engineering` `productivity` `in-progress` `misc` `personal` `deprecated`）。我这边一律平铺在 `skills/` 下，手动 vendor 时注意换算路径。只跟 `engineering` 和 `productivity` 两个桶。
 

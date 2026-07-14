@@ -11,15 +11,6 @@
       "installedAt": "2026-04-15T17:12:27.097Z",
       "updatedAt": "2026-07-06T08:13:26.822Z"
     },
-    "design": {
-      "source": "tw93/Waza",
-      "sourceType": "github",
-      "sourceUrl": "https://github.com/tw93/Waza.git",
-      "skillPath": "skills/design/SKILL.md",
-      "skillFolderHash": "e49f67328363b9b077f75a827e38cb22346bddb9",
-      "installedAt": "2026-04-15T17:12:27.580Z",
-      "updatedAt": "2026-05-22T16:42:10.136Z"
-    },
     "health": {
       "source": "tw93/Waza",
       "sourceType": "github",
