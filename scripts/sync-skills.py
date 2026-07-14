@@ -187,9 +187,11 @@ def apply_changes(index, report, prune):
     return changed
 
 
-def sync_links(manifest):
+def sync_links(manifest, dry=False):
+    """Returns (fixed_or_fixable, blocked). blocked = real dirs I refuse to touch."""
     wanted_all = sorted(p.name for p in SKILLS.iterdir() if p.is_dir())
     changed = 0
+    blocked = 0
     for agent, cfg in manifest["links"].items():
         d = Path(os.path.expanduser(cfg["dir"]))
         if not d.is_dir():
@@ -204,15 +206,19 @@ def sync_links(manifest):
                 dest = Path(os.path.realpath(entry))
                 stale = dest.parent != SKILLS or entry.name not in wanted
                 if stale or not dest.exists():
-                    entry.unlink()
                     why = "断链" if not dest.exists() else "不该在这"
-                    print(f"  {RED}移除{RESET} {agent}/{entry.name}  （{why}）")
+                    if dry:
+                        print(f"  {RED}待移除{RESET} {agent}/{entry.name}  （{why}）")
+                    else:
+                        entry.unlink()
+                        print(f"  {RED}移除{RESET} {agent}/{entry.name}  （{why}）")
                     changed += 1
             elif entry.is_dir():
-                # npx skills copies rather than symlinks; a real dir here means the
-                # skill has drifted outside version control.
+                # A real directory here means some installer copied the skill in
+                # rather than linking it, so it has drifted outside version control.
                 print(f"  {RED}警告{RESET} {agent}/{entry.name} 是实体目录，不是软链 —— "
                       f"它已经漂到版本控制外面了，我不会动它")
+                blocked += 1
 
         for name in sorted(wanted):
             link = d / name
@@ -220,11 +226,14 @@ def sync_links(manifest):
                 continue
             if link.exists() and not link.is_symlink():
                 continue  # already warned
-            link.unlink(missing_ok=True)
-            link.symlink_to(SKILLS / name)
-            print(f"  {GREEN}软链{RESET} {agent}/{name}")
+            if dry:
+                print(f"  {GREEN}待软链{RESET} {agent}/{name}")
+            else:
+                link.unlink(missing_ok=True)
+                link.symlink_to(SKILLS / name)
+                print(f"  {GREEN}软链{RESET} {agent}/{name}")
             changed += 1
-    return changed
+    return changed, blocked
 
 
 def show(report):
@@ -291,12 +300,19 @@ def main():
     else:
         print(f"\n{GREEN}和上游完全一致{RESET}")
 
-    if args.link:
-        print(f"\n{BOLD}软链{RESET}")
-        if sync_links(manifest) == 0:
-            print(f"  {GREEN}都对{RESET}")
+    # --apply implies link maintenance. Adding or pruning a skill changes what
+    # should be linked, and a symlink still pointing at a pruned skill is a broken
+    # state, not a preference -- so it is never left behind for a second command.
+    write_links = args.link or args.apply
 
-    if dirty and not args.apply:
+    print(f"\n{BOLD}软链{RESET}")
+    fixable, blocked = sync_links(manifest, dry=not write_links)
+    if not fixable and not blocked:
+        print(f"  {GREEN}都对{RESET}")
+    elif fixable and not write_links:
+        print(f"  {DIM}以上只是报告。加 --link（或 --apply）才会动软链。{RESET}")
+
+    if blocked or (dirty and not args.apply) or (fixable and not write_links):
         sys.exit(1)
 
 

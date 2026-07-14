@@ -31,10 +31,13 @@
 ## 同步
 
 ```bash
-scripts/sync-skills.py                  # 只报告，不动文件（有漂移则 exit 1）
-scripts/sync-skills.py --apply --link   # 拉上游改动，顺手修软链
-scripts/sync-skills.py --apply --prune  # 连"上游已删"的 skill 一起删
+scripts/sync-skills.py                  # 只报告：内容漂移 + 软链问题，什么都不动（有问题 exit 1）
+scripts/sync-skills.py --apply          # 拉上游改动，并把软链修到位
+scripts/sync-skills.py --link           # 只修软链，不碰文件
+scripts/sync-skills.py --apply --prune  # 连"上游已删"的 skill 一起删，软链跟着删
 ```
+
+`--apply` 一定会顺带维护软链，这不是顺手，是必须：一个 skill 被删掉、软链却还指着它，那是断链，是坏状态，不是可以留给下一条命令的选项。同理，只读模式也会把软链问题（断链、该链没链、被拷贝成了实体目录）一并报出来——所以不带参数跑一次，就是一次完整体检。
 
 不走 `npx skills`。脚本直接向 GitHub 要 git tree，拿每个文件的 blob SHA，跟**本地磁盘上的文件**按同样算法算出的 SHA 逐一比对。
 
