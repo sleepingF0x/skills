@@ -1,0 +1,18 @@
+This skill is the playwright-cli skill from the Microsoft playwright-cli
+repository, included verbatim.
+
+Source:
+- Repository: microsoft/playwright-cli
+- Path: skills/playwright-cli/
+
+Copyright (c) Microsoft Corporation.
+
+Licensed under the Apache License, Version 2.0.
+See LICENSE.txt in this directory.
+
+Modifications: none.
+
+This directory previously held a Codex-adapted fork of the skill: an npx
+wrapper script, hand-written reference guides in place of upstream's, and a
+`playwright` rename. That fork was dropped in favour of tracking upstream.
+Nothing here diverges from it now.
