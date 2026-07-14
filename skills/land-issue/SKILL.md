@@ -1,6 +1,6 @@
 ---
 name: land-issue
-description: "Land a completed issue: push the current branch, comment a summary on the issue, and close it. Use after /implement has committed and the work has been accepted."
+description: "Land a completed issue: push the current branch, comment a summary on the issue, and close it. Use after the implementation session has committed and the work has been accepted — it does not care which skill or model did the implementing."
 disable-model-invocation: true
 ---
 

@@ -62,6 +62,12 @@ Use /code-review to review the work — a second model reviewing gpt-5.6-sol's d
 
 Commit to the current branch. For an issue, reference it (`#N`) in the commit message — `/land-issue` finds the work by that reference.
 
+End the message with a trailer naming who wrote the code, and at what tier the accepted diff was produced (the tier you escalated *to*, if you escalated):
+
+    Implemented-by: codex gpt-5.6-sol (xhigh)
+
+For the trivial changes you took in the main thread yourself, that is `Implemented-by: claude`. This is not bookkeeping: acceptance runs in a **fresh session** with no memory of this one, and `/accept-issue` picks its judge on exactly this fact — a judge must never be the model that wrote the code (step 2.5 there). With no trailer, acceptance cannot route and has to stop and ask.
+
 Stop here for issues: acceptance and landing belong to `/accept-issue #N` in a **fresh session**. Do not push or close the issue from this session.
 
 ## Batch mode
