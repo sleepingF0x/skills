@@ -1,0 +1,51 @@
+{
+  "comment": "scripts/sync-skills.py 的真相来源。每个 source 声明：去哪个仓库、在哪几个根目录下找 skill。凡是含 SKILL.md 的子目录就算一个 skill —— 所以上游新增和上游删除都能被发现，不需要在这里手写 skill 名单。",
+
+  "sources": [
+    {
+      "repo": "mattpocock/skills",
+      "ref": "main",
+      "roots": ["skills/engineering", "skills/productivity"],
+      "note": "上游按用途分了桶。只跟这两个，in-progress / misc / personal / deprecated 不要。"
+    },
+    {
+      "repo": "tw93/Waza",
+      "ref": "HEAD",
+      "roots": ["skills"]
+    },
+    {
+      "repo": "tw93/kami",
+      "ref": "HEAD",
+      "roots": ["plugins/kami/skills"],
+      "note": "打包好的 skill 本体在 plugins/ 下。仓库根目录那份混着官网和四个大字体文件，不属于 skill 载荷。"
+    },
+    {
+      "repo": "microsoft/playwright-cli",
+      "ref": "HEAD",
+      "roots": ["skills"],
+      "keep": {
+        "playwright-cli": ["LICENSE.txt", "NOTICE.txt"]
+      },
+      "note": "keep 里的文件上游没有，是 Apache-2.0 再分发要求的署名文件，同步时不要删。"
+    }
+  ],
+
+  "untracked": {
+    "implement-codex": "自建",
+    "accept-issue": "自建",
+    "land-issue": "自建",
+    "humanizer-zh": "歸藏对 blader/humanizer 的中文译本。上游是英文，没有可逐字节对齐的目标，只能手工跟。"
+  },
+
+  "links": {
+    "claude": {
+      "dir": "~/.claude/skills",
+      "exclude": []
+    },
+    "codex": {
+      "dir": "~/.codex/skills",
+      "exclude": ["implement-codex"],
+      "note": "implement-codex 是让 Claude 委派给 Codex 的。Codex 自己拿到它就成了自己委派自己。"
+    }
+  }
+}

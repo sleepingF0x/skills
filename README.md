@@ -28,27 +28,36 @@
 | [blader/humanizer](https://github.com/blader/humanizer)（1，MIT） | `humanizer-zh`，歸藏的中文译本 |
 | [microsoft/playwright-cli](https://github.com/microsoft/playwright-cli)（1，Apache-2.0） | `playwright-cli`，附 `LICENSE.txt` 和 `NOTICE.txt` |
 
-`.skill-lock.json` 是 `npx skills` 安装器的状态文件，记录第三方 skill 装自哪里，已清理掉指向早年删除 skill 的死条目。它覆盖 30 个由安装器装的 skill；三个自建的本来就不归它管，另外三个（`humanizer-zh` `playwright-cli` `resolving-merge-conflicts`）没走安装器，所以也不在里面。全量跟踪之后它不再是恢复的必要条件，留着只作参考。
+## 同步
 
-mattpocock 上游在 2026-07 把 skill 按用途分了桶，路径从 `skills/<name>/` 变成 `skills/<bucket>/<name>/`（`engineering` `productivity` `in-progress` `misc` `personal` `deprecated`）。我这边一律平铺在 `skills/` 下，手动 vendor 时注意换算路径。只跟 `engineering` 和 `productivity` 两个桶。
+```bash
+scripts/sync-skills.py                  # 只报告，不动文件（有漂移则 exit 1）
+scripts/sync-skills.py --apply --link   # 拉上游改动，顺手修软链
+scripts/sync-skills.py --apply --prune  # 连"上游已删"的 skill 一起删
+```
+
+不走 `npx skills`。脚本直接向 GitHub 要 git tree，拿每个文件的 blob SHA，跟本地按同样算法算出的 SHA 逐一比对。这样能看见三件事，而安装器只能看见第一件：
+
+- **内容漂了** —— SHA 不同
+- **上游新增** —— 上游有、本地没有
+- **上游删了或改名了** —— 本地有、上游没有
+
+第三种是安装器的盲区：它只记得"我装过什么"，没有"上游把它删了"这个概念。Waza 在 2026-06-27 把 `design` 改名成 `ui`（理由是它遮蔽了 Claude Code 自带的 `/design`），本地那份旧的就这么多活了六周，还一直在遮蔽。
+
+`upstream.json` 是真相来源：每个 source 声明去哪个仓库、在哪几个根目录下找 skill。**凡是含 `SKILL.md` 的子目录就算一个 skill** —— 所以上游新增和删除都能自动发现，不用在这里手写 skill 名单。上游的目录结构（mattpocock 分了桶、kami 的本体在 `plugins/` 下）也一并封在那里。
+
+`--prune` 是单独的开关，因为上游"删掉"一个 skill 往往其实是改了名，这时该做的是同时删旧的、加新的。这个判断留给人。
+
+所有写入都落在 `skills/` 里，所以 review 就是 `git diff`，回滚就是 `git revert`。
 
 ## 新机器怎么装
 
 ```bash
 git clone https://github.com/sleepingF0x/skills.git ~/.agents
-
-# Claude Code：三个自建 skill 都要
-for s in implement-codex accept-issue land-issue; do
-  ln -sfn ~/.agents/skills/$s ~/.claude/skills/$s
-done
-
-# Codex：只要验收和收尾两个。implement-codex 是让 Claude 委派给 Codex 的，
-# Codex 自己拿到它就成了自己委派自己，所以不链。
-for s in accept-issue land-issue; do
-  ln -sfn ~/.agents/skills/$s ~/.codex/skills/$s
-done
+mkdir -p ~/.claude/skills ~/.codex/skills
+~/.agents/scripts/sync-skills.py --apply --link
 ```
 
-第三方 skill 同理软链，或者用 `npx skills add <source>` 从上游重装一份，那样拿到的是最新版。
+软链策略写在 `upstream.json` 的 `links` 里：Claude 拿全部，Codex 除了 `implement-codex` 都拿——那个是让 Claude 委派给 Codex 的，Codex 自己拿到它就成了自己委派自己。
 
-注意 `npx skills`（1.5.16 起）是直接把 skill **拷贝**进 agent 目录，不再存到 `~/.agents/skills` 再软链。所以每次 `skills add` 之后都要确认 `~/.claude/skills/<name>` 还是软链：变成实体目录就说明这个 skill 漂到版本控制外面去了，得挪回 `~/.agents/skills` 再软链回来。
+脚本还会盯着一个坑：`npx skills`（1.5.16 起）是直接把 skill **拷贝**进 agent 目录，不再软链。所以 `~/.claude/skills/<name>` 一旦变成实体目录，就说明它漂到版本控制外面去了——脚本会警告，但不会替你动它。
