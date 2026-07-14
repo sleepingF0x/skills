@@ -1,0 +1,5 @@
+interface:
+  display_name: "Land Issue"
+  short_description: "Push, report, and close a finished issue"
+policy:
+  allow_implicit_invocation: false

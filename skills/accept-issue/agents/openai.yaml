@@ -1,0 +1,5 @@
+interface:
+  display_name: "Accept Issue"
+  short_description: "Judge an implemented issue on evidence"
+policy:
+  allow_implicit_invocation: false

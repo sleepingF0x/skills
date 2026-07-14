@@ -1,0 +1,5 @@
+interface:
+  display_name: "Implement (Codex)"
+  short_description: "Build from a spec; Codex writes the code"
+policy:
+  allow_implicit_invocation: false
