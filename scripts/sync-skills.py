@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """把 vendored 的 skill 跟上游对齐，并维护 Claude / Codex 的软链。
 
-不走 `npx skills`。直接向 GitHub 要 git tree，拿每个文件的 blob SHA，和本地
-按同样算法算出的 SHA 逐一比对。这样三种情况都能看见：
+不走 `npx skills`。直接向 GitHub 要 git tree，拿每个文件的 blob SHA，和**本地
+磁盘上的文件**按同样算法算出的 SHA 逐一比对：
 
     内容漂了      SHA 不同
     上游新增      上游有、本地没有
-    上游删了/改名  本地有、上游没有   <- 安装器永远发现不了这一种
+    上游删了/改名  本地有、上游没有
+
+关键在"跟谁比"。`npx skills update` 比的是上游 folder hash 和 lock 里当初装的
+时候记下的 hash，不看磁盘 —— 所以本地私改或 fork 过的 skill 它报"已是最新"
+（playwright 就是这么藏了很久），上游新增的 skill 它也永远遍历不到（它只走
+lock 里已有的条目）。它确实能发现上游删除，但只在交互模式下问一句就算完。
 
 所有写入都落在 skills/ 里，所以 review 就是 `git diff`，回滚就是 `git revert`。
 

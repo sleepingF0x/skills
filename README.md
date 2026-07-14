@@ -36,15 +36,22 @@ scripts/sync-skills.py --apply --link   # 拉上游改动，顺手修软链
 scripts/sync-skills.py --apply --prune  # 连"上游已删"的 skill 一起删
 ```
 
-不走 `npx skills`。脚本直接向 GitHub 要 git tree，拿每个文件的 blob SHA，跟本地按同样算法算出的 SHA 逐一比对。这样能看见三件事，而安装器只能看见第一件：
+不走 `npx skills`。脚本直接向 GitHub 要 git tree，拿每个文件的 blob SHA，跟**本地磁盘上的文件**按同样算法算出的 SHA 逐一比对。
 
-- **内容漂了** —— SHA 不同
-- **上游新增** —— 上游有、本地没有
-- **上游删了或改名了** —— 本地有、上游没有
+差别就在"跟谁比"。`npx skills update` 比的是上游的 folder hash 和 **lock 里当初装的时候记下的 hash**，不看磁盘。于是：
 
-第三种是安装器的盲区：它只记得"我装过什么"，没有"上游把它删了"这个概念。Waza 在 2026-06-27 把 `design` 改名成 `ui`（理由是它遮蔽了 Claude Code 自带的 `/design`），本地那份旧的就这么多活了六周，还一直在遮蔽。
+| | `npx skills update` | 本脚本 |
+|---|---|---|
+| 上游内容变了 | 能 | 能 |
+| **本地被私改或 fork 了** | **看不见**——lock 记的 hash 还等于上游的，所以报"已是最新" | 能 |
+| **上游新增了 skill** | **看不见**——它只遍历 lock 里已有的条目 | 能 |
+| 上游删了 | 能，交互确认后删；但 `-y` 非交互模式会直接跳过 | `--prune` |
+| 上游改名/移动 | 判成"删了"（旧路径没了），确认删除就误删一个活着的 skill | 报成「上游已无」+「上游新增」两条，人来判断 |
+| 没走安装器装的 skill | 看不见 | 能 |
 
-`upstream.json` 是真相来源：每个 source 声明去哪个仓库、在哪几个根目录下找 skill。**凡是含 `SKILL.md` 的子目录就算一个 skill** —— 所以上游新增和删除都能自动发现，不用在这里手写 skill 名单。上游的目录结构（mattpocock 分了桶、kami 的本体在 `plugins/` 下）也一并封在那里。
+第二行是 `playwright` 那个 fork 能藏住的原因，第三行是 `resolving-merge-conflicts` 一直没被发现的原因。至于 `design`：Waza 在 2026-06-27 把它改名成 `ui`（理由是它遮蔽了 Claude Code 自带的 `/design`），`npx skills update` 其实**会**提示删除——但只在交互模式下问一句，没人点头它就活着，一活六周，一直在遮蔽。
+
+`upstream.json` 是真相来源：每个 source 声明去哪个仓库、在哪几个根目录下找 skill。**凡是含 `SKILL.md` 的子目录就算一个 skill** —— 所以上游新增和删除都能自动发现，不用在这里手写 skill 名单，也不依赖任何"当初装的时候记下的"状态。上游的目录结构（mattpocock 分了桶、kami 的本体在 `plugins/` 下）也一并封在那里。
 
 `--prune` 是单独的开关，因为上游"删掉"一个 skill 往往其实是改了名，这时该做的是同时删旧的、加新的。这个判断留给人。
 
@@ -60,4 +67,4 @@ mkdir -p ~/.claude/skills ~/.codex/skills
 
 软链策略写在 `upstream.json` 的 `links` 里：Claude 拿全部，Codex 除了 `implement-codex` 都拿——那个是让 Claude 委派给 Codex 的，Codex 自己拿到它就成了自己委派自己。
 
-脚本还会盯着一个坑：`npx skills`（1.5.16 起）是直接把 skill **拷贝**进 agent 目录，不再软链。所以 `~/.claude/skills/<name>` 一旦变成实体目录，就说明它漂到版本控制外面去了——脚本会警告，但不会替你动它。
+脚本还会盯着一个坑：`~/.claude/skills/<name>` 一旦从软链变成**实体目录**（比如被某个安装器按拷贝模式覆盖了），就说明这个 skill 漂到版本控制外面去了。脚本会警告，但不会替你动它。
