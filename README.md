@@ -35,11 +35,27 @@ scripts/sync-skills.py                  # 只报告：内容漂移 + 软链问�
 scripts/sync-skills.py --apply          # 拉上游改动，并把软链修到位
 scripts/sync-skills.py --link           # 只修软链，不碰文件
 scripts/sync-skills.py --apply --prune  # 连"上游已删"的 skill 一起删，软链跟着删
+
+scripts/sync-skills.py add <owner/repo>              # 列出这个仓库里有哪些 skill
+scripts/sync-skills.py add <owner/repo> <skill>...   # 装其中几个
+scripts/sync-skills.py add <owner/repo> --all        # 整个仓库都跟
 ```
+
+### 装新 skill
+
+`add` 会全仓库扫一遍，**任何含 `SKILL.md` 的目录都是候选**，不预设它藏在哪个桶里。选好之后它做三件事：把文件写进 `skills/`、把来源登记进 `upstream.json`、建好两边的软链。
+
+登记这一步是关键——从此它归版本控制管，也从此**每次同步都会被检查**。安装器的做法是把文件拷进 agent 目录，那等于一装进来就漂在版本控制外面。
+
+指定了具体 skill 名，就记一条 `only`，只跟这几个；`--all` 则不记，以后那个仓库**新增的 skill 也会自动被发现**。
+
+卸载不需要命令：`git rm -r skills/<name>`，再从 `upstream.json` 删掉对应的 source（或从 `only` 里划掉），然后 `--link` 会自己把软链收走。
 
 `--apply` 一定会顺带维护软链，这不是顺手，是必须：一个 skill 被删掉、软链却还指着它，那是断链，是坏状态，不是可以留给下一条命令的选项。同理，只读模式也会把软链问题（断链、该链没链、被拷贝成了实体目录）一并报出来——所以不带参数跑一次，就是一次完整体检。
 
-不走 `npx skills`。脚本直接向 GitHub 要 git tree，拿每个文件的 blob SHA，跟**本地磁盘上的文件**按同样算法算出的 SHA 逐一比对。
+不走 `npx skills`。脚本直接向 GitHub 要 git tree，拿每个文件的 blob SHA **和文件模式**，跟**本地磁盘上的文件**逐一比对。
+
+（mode 是必须比的：blob SHA 只覆盖内容。Waza 有 14 个脚本上游是 `100755`，本地却是 `644`——第一版脚本对此完全瞎，报"完全一致"。上游若用了 Git LFS，tree API 拿回来的是**指针文件**而不是内容，脚本会直接报错退出，绝不把假文件写下去。）
 
 差别就在"跟谁比"。`npx skills update` 比的是上游的 folder hash 和 **lock 里当初装的时候记下的 hash**，不看磁盘。于是：
 
