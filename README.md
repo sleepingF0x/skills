@@ -28,62 +28,90 @@
 | [blader/humanizer](https://github.com/blader/humanizer)（1，MIT） | `humanizer-zh`，歸藏的中文译本 |
 | [microsoft/playwright-cli](https://github.com/microsoft/playwright-cli)（1，Apache-2.0） | `playwright-cli`，附 `LICENSE.txt` 和 `NOTICE.txt` |
 
-## 同步
+## 用法
+
+装、更新、删、软链，全在 `scripts/sync-skills.py` 里，不需要 `npx skills`。
+
+依赖两样：`python3`（只用标准库）和 [`gh` CLI](https://cli.github.com)（`brew install gh && gh auth login`）。脚本靠 `gh` 打 GitHub API，认证和速率限制都由它接管。
+
+### 日常
 
 ```bash
-scripts/sync-skills.py                  # 只报告：内容漂移 + 软链问题，什么都不动（有问题 exit 1）
-scripts/sync-skills.py --apply          # 拉上游改动，并把软链修到位
-scripts/sync-skills.py --link           # 只修软链，不碰文件
-scripts/sync-skills.py --apply --prune  # 连"上游已删"的 skill 一起删，软链跟着删
-
-scripts/sync-skills.py add <owner/repo>              # 列出这个仓库里有哪些 skill
-scripts/sync-skills.py add <owner/repo> <skill>...   # 装其中几个
-scripts/sync-skills.py add <owner/repo> --all        # 整个仓库都跟
+scripts/sync-skills.py            # 体检：只报告，什么都不动
+scripts/sync-skills.py --apply    # 拉上游改动，并把软链修到位
 ```
+
+不带参数跑，就是一次完整体检：内容漂了、上游新增了、上游删了、软链断了、该链的没链、哪个 skill 被拷成了实体目录——全报出来，一个字节都不动。**有任何问题 exit 1**，所以可以直接挂进 cron 或 CI。
+
+`--apply` 一定会顺带把软链修到位。这不是顺手，是必须：skill 被删掉、软链却还指着它，那是断链，是坏状态，不是可以留给下一条命令的选项。
 
 ### 装新 skill
 
-`add` 会全仓库扫一遍，**任何含 `SKILL.md` 的目录都是候选**，不预设它藏在哪个桶里。选好之后它做三件事：把文件写进 `skills/`、把来源登记进 `upstream.json`、建好两边的软链。
+```bash
+scripts/sync-skills.py add tw93/Waza                # 先看看这仓库里有哪些 skill
+scripts/sync-skills.py add tw93/Waza check health   # 装其中几个
+scripts/sync-skills.py add owner/repo --all         # 整个仓库都跟
+```
+
+`add` 全仓库扫一遍，**任何含 `SKILL.md` 的目录都是候选**，不预设它藏在哪个桶里。选好之后它做三件事：写进 `skills/`、把来源登记进 `upstream.json`、建好两边的软链。
 
 登记这一步是关键——从此它归版本控制管，也从此**每次同步都会被检查**。安装器的做法是把文件拷进 agent 目录，那等于一装进来就漂在版本控制外面。
 
-指定了具体 skill 名，就记一条 `only`，只跟这几个；`--all` 则不记，以后那个仓库**新增的 skill 也会自动被发现**。
+写了具体 skill 名，就记一条 `only`，只跟这几个；`--all` 不记，以后那个仓库**新增的 skill 也会自动被发现**。名字和本地已有的撞车，或者上游根本没这个 skill，它都会拒绝并告诉你实情。
 
-卸载不需要命令：`git rm -r skills/<name>`，再从 `upstream.json` 删掉对应的 source（或从 `only` 里划掉），然后 `--link` 会自己把软链收走。
+### 删 skill
 
-`--apply` 一定会顺带维护软链，这不是顺手，是必须：一个 skill 被删掉、软链却还指着它，那是断链，是坏状态，不是可以留给下一条命令的选项。同理，只读模式也会把软链问题（断链、该链没链、被拷贝成了实体目录）一并报出来——所以不带参数跑一次，就是一次完整体检。
+```bash
+scripts/sync-skills.py --apply --prune    # 上游已经删掉的，跟着删
+```
 
-不走 `npx skills`。脚本直接向 GitHub 要 git tree，拿每个文件的 blob SHA **和文件模式**，跟**本地磁盘上的文件**逐一比对。
+上游"删掉"一个 skill 往往其实是**改了名**（Waza 把 `design` 改成了 `ui`），这时该做的是同时删旧的、加新的。所以 `--prune` 是单独的开关，这个判断留给人——脚本会把它同时报成「上游已无」和「上游新增」两条。
 
-（mode 是必须比的：blob SHA 只覆盖内容。Waza 有 14 个脚本上游是 `100755`，本地却是 `644`——第一版脚本对此完全瞎，报"完全一致"。上游若用了 Git LFS，tree API 拿回来的是**指针文件**而不是内容，脚本会直接报错退出，绝不把假文件写下去。）
+手动删一个：`git rm -r skills/<name>`，再从 `upstream.json` 拿掉对应的 source（或从 `only` 里划掉），然后跑一次 `--link`，软链会自己被收走。
 
-差别就在"跟谁比"。`npx skills update` 比的是上游的 folder hash 和 **lock 里当初装的时候记下的 hash**，不看磁盘。于是：
+### 别的
+
+```bash
+scripts/sync-skills.py --link     # 只修软链，不碰文件
+```
+
+有两类问题脚本**故意不修**，只警告：agent 目录里出现了实体目录/普通文件（不是软链），或者指向本仓库之外的软链。它们可能装着别处没有的东西，不归脚本删。但它们会**永远让体检失败**——因为那意味着有 skill 漂在版本控制外面。
+
+## 它怎么工作
+
+向 GitHub 要 git tree（一个上游一次调用），拿到每个文件的 **blob SHA 和文件模式**，再拿**本地磁盘上的文件**按 git 同样的算法算 SHA，逐一比对。有差异的文件才去取内容。日常没变化的话，一次同步就是几个 HTTP 请求，一个字节的文件内容都不下载。
+
+mode 必须一起比：blob SHA 只覆盖内容。Waza 有 14 个脚本上游是 `100755`、本地是 `644`，第一版脚本对此完全瞎，一直报"完全一致"。上游若启用了 Git LFS，tree API 拿回来的是**指针文件**而不是内容，脚本会直接报错退出，绝不把假文件写下去。
+
+`upstream.json` 是真相来源：每个 source 声明去哪个仓库、在哪几个根目录下找 skill。**凡是含 `SKILL.md` 的子目录就算一个 skill**——所以上游的新增和删除都能自己浮出来，既不用手写 skill 名单，也不依赖任何"当初安装时记下的状态"。上游的目录结构（mattpocock 分了桶、kami 的本体在 `plugins/` 下）和软链策略（`links`）也都封在那里。
+
+所有写入都落在 `skills/` 里，所以 review 就是 `git diff`，回滚就是 `git revert`。
+
+## 为什么不用 npx skills
+
+差别在**跟谁比**。`npx skills update` 比的是上游的 folder hash 和 **lock 里当初安装时记下的 hash**，从不看磁盘。
 
 | | `npx skills update` | 本脚本 |
 |---|---|---|
 | 上游内容变了 | 能 | 能 |
 | **本地被私改或 fork 了** | **看不见**——lock 记的 hash 还等于上游的，所以报"已是最新" | 能 |
 | **上游新增了 skill** | **看不见**——它只遍历 lock 里已有的条目 | 能 |
-| 上游删了 | 能，交互确认后删；但 `-y` 非交互模式会直接跳过 | `--prune` |
-| 上游改名/移动 | 判成"删了"（旧路径没了），确认删除就误删一个活着的 skill | 报成「上游已无」+「上游新增」两条，人来判断 |
+| 文件模式变了 | 能（它 git clone，clone 会还原 mode） | 能 |
+| 上游删了 | 能，但只在交互模式下问一句；`-y` 直接跳过 | `--prune` |
+| 上游改名/移动 | 判成"删了"（旧路径没了），点头就误删一个活着的 skill | 报成「上游已无」+「上游新增」，人来判断 |
 | 没走安装器装的 skill | 看不见 | 能 |
+| 装完落在哪 | 拷进 agent 目录，漂在版本控制外 | 写进仓库，再软链 |
 
-第二行是 `playwright` 那个 fork 能藏住的原因，第三行是 `resolving-merge-conflicts` 一直没被发现的原因。至于 `design`：Waza 在 2026-06-27 把它改名成 `ui`（理由是它遮蔽了 Claude Code 自带的 `/design`），`npx skills update` 其实**会**提示删除——但只在交互模式下问一句，没人点头它就活着，一活六周，一直在遮蔽。
+第二行是 `playwright` 那个 fork 能藏住的原因，第三行是 `resolving-merge-conflicts` 一直没被发现的原因。至于 `design`：Waza 在 2026-06-27 把它改名成 `ui`（理由正是它遮蔽了 Claude Code 自带的 `/design`），`npx skills update` 其实**会**提示删除——但只问一句，没人点头它就继续活着，一活六周，一直在遮蔽。
 
-`upstream.json` 是真相来源：每个 source 声明去哪个仓库、在哪几个根目录下找 skill。**凡是含 `SKILL.md` 的子目录就算一个 skill** —— 所以上游新增和删除都能自动发现，不用在这里手写 skill 名单，也不依赖任何"当初装的时候记下的"状态。上游的目录结构（mattpocock 分了桶、kami 的本体在 `plugins/` 下）也一并封在那里。
-
-`--prune` 是单独的开关，因为上游"删掉"一个 skill 往往其实是改了名，这时该做的是同时删旧的、加新的。这个判断留给人。
-
-所有写入都落在 `skills/` 里，所以 review 就是 `git diff`，回滚就是 `git revert`。
+`npx skills` 还剩一个本脚本没有的能力：`find`，在注册表里**搜索**你还不知道的 skill。那是发现问题，不是安装问题——知道了仓库名，`add` 接得住。
 
 ## 新机器怎么装
 
 ```bash
 git clone https://github.com/sleepingF0x/skills.git ~/.agents
 mkdir -p ~/.claude/skills ~/.codex/skills
-~/.agents/scripts/sync-skills.py --apply --link
+~/.agents/scripts/sync-skills.py --apply
 ```
 
 软链策略写在 `upstream.json` 的 `links` 里：Claude 拿全部，Codex 除了 `implement-codex` 都拿——那个是让 Claude 委派给 Codex 的，Codex 自己拿到它就成了自己委派自己。
-
-脚本还会盯着一个坑：`~/.claude/skills/<name>` 一旦从软链变成**实体目录**（比如被某个安装器按拷贝模式覆盖了），就说明这个 skill 漂到版本控制外面去了。脚本会警告，但不会替你动它。
