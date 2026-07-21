@@ -5,6 +5,7 @@
     scripts/sync-skills.py --apply            拉上游改动，并把软链修到位
     scripts/sync-skills.py --link             只修软链，不碰文件
     scripts/sync-skills.py --apply --prune    连"上游已删"的 skill 一起删，软链跟着删
+    scripts/sync-skills.py list               列出所有 skill：各自的来源，和软链现状
     scripts/sync-skills.py add <owner/repo> [skill...]   装一个新来源的 skill
 
 不走 `npx skills`。直接向 GitHub 要 git tree，拿每个文件的 blob SHA 和 mode，跟
@@ -340,6 +341,63 @@ def cmd_add(args, manifest):
     print(f"\n{DIM}装完了。检查一下 git diff，然后提交。{RESET}")
 
 
+# ---------------------------------------------------------------- list
+
+def cmd_list(manifest):
+    # 谁归谁：向每个上游要 tree（只拿目录结构，不下载 blob，便宜），得到 skill→repo。
+    origin = {}
+    for source in manifest["sources"]:
+        for name in discover(source):
+            origin.setdefault(name, source["repo"])
+
+    untracked = manifest["untracked"]
+    local = sorted(p.name for p in SKILLS.iterdir() if p.is_dir())
+
+    # 每个 agent 目录里，这个 skill 有没有正确软链回来。
+    agents = {}
+    for agent, cfg in manifest["links"].items():
+        d = Path(os.path.expanduser(cfg["dir"]))
+        linked = set()
+        if d.is_dir():
+            for name in local:
+                link = d / name
+                if link.is_symlink() and Path(os.path.realpath(link)) == SKILLS / name:
+                    linked.add(name)
+        agents[agent] = (cfg, linked, d.is_dir())
+
+    def link_marks(name):
+        marks = []
+        for agent, (cfg, linked, exists) in agents.items():
+            if name in cfg["exclude"]:
+                marks.append(f"{DIM}{agent}−{RESET}")     # 有意排除
+            elif not exists:
+                marks.append(f"{DIM}{agent}?{RESET}")      # agent 目录不在，没法判断
+            elif name in linked:
+                marks.append(f"{GREEN}{agent}✓{RESET}")
+            else:
+                marks.append(f"{RED}{agent}✗{RESET}")      # 该软链却没有
+        return "  ".join(marks)
+
+    def source_of(name):
+        if name in origin:
+            return f"{DIM}{origin[name]}{RESET}"
+        if name in untracked:
+            return f"{YELLOW}不跟上游{RESET}  {DIM}{untracked[name]}{RESET}"
+        return f"{RED}上游已无{RESET}  {DIM}本地有，上游找不到{RESET}"
+
+    width = max((len(n) for n in local), default=0)
+    print(f"\n{BOLD}共 {len(local)} 个 skill{RESET}  {DIM}（软链：✓ 已连  ✗ 缺  − 排除  ? agent 不在）{RESET}\n")
+    for name in local:
+        print(f"  {BOLD}{name.ljust(width)}{RESET}  {link_marks(name)}  {source_of(name)}")
+
+    # 上游有、本地还没装的，也顺带提一句 —— 和同步报告里的「上游新增」对得上。
+    ahead = [n for n in sorted(origin) if n not in local]
+    if ahead:
+        print(f"\n{CYAN}上游还有 {len(ahead)} 个本地没装{RESET}  {DIM}（sync-skills.py --apply 会装）{RESET}")
+        for name in ahead:
+            print(f"  {name}  {DIM}{origin[name]}{RESET}")
+
+
 # ---------------------------------------------------------------- 报告
 
 def show(r):
@@ -391,6 +449,7 @@ def main():
     ap.add_argument("--prune", action="store_true", help="连上游已删的 skill 一起删（配合 --apply）")
 
     sub = ap.add_subparsers(dest="cmd")
+    sub.add_parser("list", help="列出所有 skill：来源和软链现状")
     a = sub.add_parser("add", help="装一个新来源的 skill")
     a.add_argument("repo", help="owner/repo")
     a.add_argument("skills", nargs="*", help="要装哪几个；不写就列出来给你看")
@@ -403,6 +462,10 @@ def main():
         die("需要 gh CLI（brew install gh && gh auth login）")
 
     manifest = json.loads(MANIFEST.read_text())
+
+    if args.cmd == "list":
+        cmd_list(manifest)
+        return
 
     if args.cmd == "add":
         cmd_add(args, manifest)
