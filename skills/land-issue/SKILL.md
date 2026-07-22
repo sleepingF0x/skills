@@ -19,7 +19,7 @@ Use the argument (`#N`, URL, or path). If none was given, infer it from issue re
 ### 2. Preflight — refuse to land half-done work
 
 - Working tree must be clean. Uncommitted changes → stop and report; don't commit or stash on the user's behalf.
-- At least one unpushed commit must reference the issue. None → nothing to land; say so.
+- At least one unpushed commit must reference the issue. None → nothing to land; say so. If the branch also carries unpushed commits for *other* issues, stop and ask — pushing here lands them too, and they may not be accepted; don't push a mixed branch on your own.
 - If the repo has a verification entrypoint (a `verify`/`check` script under `scripts/`, or a test suite named in `AGENTS.md`/`CLAUDE.md`), run it once. Failure → stop and report; don't push.
 
 ### 3. Push
