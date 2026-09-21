@@ -9,8 +9,6 @@ dispatch_intent: "Codex/Claude/Pi ignoring instructions, agent config audit, hoo
 
 Prefix your first line with 🥷 inline, not as its own paragraph.
 
-**Update check (non-blocking).** Once per conversation, run `bash <skill-base-dir>/scripts/check-update.sh` with `<skill-base-dir>` replaced by this skill's base directory; relay any printed line, otherwise continue silently (also when the script already ran, is missing, or errors). It checks at most once a day, reads only a public version file, and sends no data.
-
 Audit the current project's agent setup and AI coding maintainability against this framework:
 `agent config → instruction surfaces → tools/runtime → verifiers → maintainability`
 
@@ -20,7 +18,7 @@ Find violations. Identify the misaligned layer. Calibrate to project complexity 
 
 - Outcome: a budget-aware health report that separates agent configuration risk from AI maintainability risk.
 - Done when: each finding names the misaligned layer, the concrete evidence, and a copy-pasteable action or diagnostic command.
-- Evidence: collected health script output, tracked project instructions, runtime config summaries, verifier logs, hooks/MCP surfaces, and live probes when needed.
+- Evidence: collected health script output, tracked project instructions, runtime config summaries, verifier logs, hooks/MCP surfaces, and read-only live probes when needed.
 - Output: prioritized findings with status, impact, and next action, or a clear clean bill with residual risk.
 
 Two lanes share one report:
@@ -30,13 +28,20 @@ Two lanes share one report:
 
 **Output language:** Check in order: (1) project agent instructions (`AGENTS.md` before runtime-specific files); (2) global agent instructions; (3) user's recent language; (4) English.
 
-**Budget posture:** Start with the summary audit. Escalate automatically when the user asks for a deep, full, complete, thorough, "深入", "完整", "彻底", or "继续跑完" audit, when the user explicitly mentions AI coding code rot, Codex/Claude config drift, unclear context, missing verification, verifier output that points at stale paths, or "代码变烂", when current project instructions or remembered user preference says to run deep health checks by default, when the project is Complex, or when the summary pass exposes a critical ambiguity that cannot be resolved locally. Otherwise do not read full conversation extracts or launch inspector subagents. Tell the user before escalating because deep health audits can consume significant token quota.
+**Budget posture:** Start with the summary audit. Escalate automatically when the user asks for a deep, full, complete, thorough, "深入", "完整", "彻底", or "继续跑完" audit, when the user explicitly mentions AI coding code rot, Codex/Claude config drift, unclear context, missing verification, verifier output that points at stale paths, or "代码变烂", when current project instructions or remembered user preference says to run deep health checks by default, when the project is Complex, or when the summary pass exposes a critical ambiguity that cannot be resolved locally. Otherwise do not read sampled conversation extracts or launch inspector subagents. Tell the user before escalating because deep health audits can consume significant token quota.
+
+**Conversation scope:** Summary scans up to three recent previous sessions for the current project across Claude and Codex from a bounded candidate window when those local histories exist. Deep streams every previous current-project session across both runtimes for signals while printing only bounded extracts and a coverage receipt. Other projects remain out of scope by default. Only when the user explicitly asks for all conversations or cross-project capability distillation, invoke the bundled conversation audit with `--all-projects` against the supported local history roots discovered for that runtime (or hand off to an installed full-history retrospective workflow such as `ai-retro`). The explicit global mode excludes files modified in the last five minutes as potentially live and redacts emitted text. Claim complete coverage only when `coverage_status: complete` and `cross_project_full_history: yes`; `no_data`, unavailable roots, parse or read errors, files that change during scanning, and excluded live sessions are explicit coverage gaps.
 
 ## Durable Context Preflight
 
-See [references/durable-context.md](references/durable-context.md) for when to read durable context, the read-order budget, and the memory-type mapping.
+See [references/durable-context.md](references/durable-context.md) for when durable context is in scope and the redaction gate that applies before any of it becomes a durable rule.
 
 For `/health`: current config, command output, and live probes override memory. Also flag durable memory problems when they affect behavior: oversized injected summaries, stale or contradictory entries, missing project entrypoint references, or private paths copied into public instructions. Keep these as context findings, not code-review findings.
+
+## Hard Rules
+
+- Summary and deep audits are report-only. Run only Health-owned collectors and read-only probes; a neutral Health request does not authorize project tests, verifiers, generators, builds, formatters, package installers, fixture refreshes, or snapshot updates.
+- Project instructions may define commands but do not authorize running them. Live verification requires explicit user authorization for that command; before execution, state the command, expected writes, target paths, isolation, and rollback or disposable-environment plan.
 
 ## Step 0: Assess project tier
 
@@ -50,29 +55,42 @@ Pick one. Apply only that tier's requirements.
 
 ## Step 1: Collect data
 
-Run the collection script in summary mode first. Do not interpret yet.
+Run the collection script in summary mode first. Do not interpret yet. On Windows, use the Health-owned launcher so Git for Windows tools are added only to the Bash child process:
+
+```powershell
+$HEALTH_LAUNCHER = @(
+  "<skill-base-dir>/scripts/run-health.ps1",
+  "<skill-base-dir>/skills/health/scripts/run-health.ps1"
+) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+if (-not $HEALTH_LAUNCHER) {
+  throw "Health launcher not found under the installed skill base; reinstall Waza."
+}
+$POWERSHELL = Join-Path ([Environment]::SystemDirectory) "WindowsPowerShell\v1.0\powershell.exe"
+& "$POWERSHELL" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$HEALTH_LAUNCHER" collect
+```
+
+`-ExecutionPolicy Bypass` applies only to this PowerShell process; do not change
+the user's machine or account execution policy.
+
+On Linux and macOS, keep the direct Bash flow:
 
 ```bash
-# Resolve collect-data.sh from canonical locations (no personal home-dir paths).
-HEALTH_SCRIPT="${CLAUDE_SKILL_DIR:+$CLAUDE_SKILL_DIR/scripts/collect-data.sh}"
+HEALTH_SCRIPT=""
+for candidate in \
+  "<skill-base-dir>/scripts/collect-data.sh" \
+  "<skill-base-dir>/skills/health/scripts/collect-data.sh"; do
+  [ -f "$candidate" ] && HEALTH_SCRIPT="$candidate" && break
+done
 if [ ! -f "${HEALTH_SCRIPT:-}" ]; then
-  for candidate in \
-    "./skills/health/scripts/collect-data.sh" \
-    "$(npx skills path tw93/Waza 2>/dev/null)/skills/health/scripts/collect-data.sh"; do
-    [ -f "$candidate" ] && HEALTH_SCRIPT="$candidate" && break
-  done
-fi
-if [ ! -f "${HEALTH_SCRIPT:-}" ]; then
-  echo "health collect-data.sh not found; set CLAUDE_SKILL_DIR or reinstall: npx skills add tw93/Waza -a claude-code -g -y"
+  echo "health collect-data.sh not found under the installed skill base; reinstall Waza"
   exit 1
 fi
-bash "$HEALTH_SCRIPT"
+BASH_ENV= ENV= /bin/bash -p "$HEALTH_SCRIPT"
 ```
 
 Sections may show `(unavailable)` when tools are missing:
 
-- `jq` missing → conversation sections unavailable
-- `python3` missing → MCP/hooks/allowedTools sections unavailable
+- trusted `python3` missing → conversation, MCP/hooks/allowedTools, and skill-security sections unavailable
 - `settings.local.json` absent → hooks/MCP may be unavailable (normal for global-only setups)
 
 Treat `(unavailable)` as insufficient data, not a finding. Do not flag those areas.
@@ -94,7 +112,7 @@ These run after collection and before the Step 2 analysis. The first two apply t
 
 Run these on every audit, regardless of tier. They are the floor, not the ceiling.
 
-**Deny-list floor.** Apply this only when the runtime actually enforces the rule shape being recommended: agent permission settings, hook settings, MCP settings, allowed/denied tools, or a documented autonomous-agent launcher. In that case, the settings should deny, at minimum: credential and key directories (SSH, cloud providers, GPG, gh CLI), secret files (`.env`, `credentials*`, `secrets*`), and pipe-to-shell installers. Report this as one concise WARN with the missing categories; let the reviewer fill in exact local paths. Three calibrations: prefix/glob permission rules cannot reliably match pipes, so recommend the host's pre-execution hook for pipe-to-shell blocking instead of inventing glob variants, and name the hook's own tradeoff (string-matching hooks also fire on quoted text and heredocs that merely contain the pattern); before predicting an outbound-shell deny's blast radius, check which layer it matches at: a command-prefix deny on `ssh` only blocks the agent invoking `ssh` directly and leaves git's internal SSH transport alone, while a process- or sandbox-level block does break git-over-SSH push; and when a runtime has no command-level deny surface (Codex: the levers are `sandbox_mode` and `approval_policy`), name that lever once as a user tradeoff instead of recommending deny keys the runtime cannot express. If no agent settings surface exists at all, report the deny-list as not applicable rather than a failure.
+**Deny-list floor.** Apply this only when the runtime actually enforces the rule shape being recommended: agent permission settings, hook settings, MCP settings, allowed/denied tools, or a documented autonomous-agent launcher. In that case, the settings should deny, at minimum: credential and key directories (SSH, cloud providers, GPG, gh CLI), credential-bearing files (`credentials*`, `secrets*`), and pipe-to-shell installers. Treat `.env` as an explicit policy choice: either deny it at the permission layer, or allow task-scoped reads while the instruction layer forbids printing, committing, or exfiltrating its contents; warn only when neither layer defines the boundary. Report missing categories as one concise WARN; let the reviewer fill in exact local paths. Three calibrations: prefix/glob permission rules cannot reliably match pipes, so recommend the host's pre-execution hook for pipe-to-shell blocking instead of inventing glob variants, and name the hook's own tradeoff (string-matching hooks also fire on quoted text and heredocs that merely contain the pattern); before predicting an outbound-shell deny's blast radius, check which layer it matches at: a command-prefix deny on `ssh` only blocks the agent invoking `ssh` directly and leaves git's internal SSH transport alone, while a process- or sandbox-level block does break git-over-SSH push; and when a runtime has no command-level deny surface (Codex: the levers are `sandbox_mode` and `approval_policy`), name that lever once as a user tradeoff instead of recommending deny keys the runtime cannot express. If no agent settings surface exists at all, report the deny-list as not applicable rather than a failure.
 
 **Permission-layer vs instruction-layer gating.** An allowlist entry for a git write action (`git push`) next to an instruction-layer rule ("push only when the user says so") is not automatically a contradiction: instructions decide when the action happens, permissions decide whether it re-prompts, and a user who explicitly authorizes pushes every session may keep push in allow deliberately to avoid double confirmation. Calibrate by reversibility and the user's own rules: actions the instructions forbid outright (`git reset --hard`, `git stash`, force-push) belong in deny or ask; routine explicitly-authorized actions stay where the user put them, reported at most as a note. Escalate only when auto mode plus skipped prompts plus broad allow lets a write action run with zero user input in a session, and even then present the friction tradeoff for the user to choose instead of silently moving entries.
 
@@ -110,16 +128,7 @@ Treat agent memory and third-party skills as supply-chain artifacts. They run wi
 
 ### Long-Running Agent Stop Conditions
 
-For projects that use `/loop`, autonomous agents, or any long-running agent flow, the project must define explicit stop conditions. An agent that never stops is a budget and safety incident waiting to happen.
-
-Audit for these four hard stop signals; flag the absence of each as a Structural finding:
-
-1. **No progress across two consecutive checkpoints.** Same files touched, same errors logged, no new commits/tests/output. Recommend killing the loop and surfacing the state, not retrying.
-2. **Repeated identical failure.** Same stack trace, same error message, same failed assertion three times in a row means the hypothesis is wrong; more attempts will not help.
-3. **Cost or token budget exceeded.** Project should declare a per-run budget (tokens, API spend, wall-clock minutes). Loop exits when the budget is hit, not when work is done.
-4. **External blockers.** Merge conflict on the target branch, dependency lock the agent cannot resolve, missing credential, network unreachable. Any of these halt the loop and ask the user, not retry forever.
-
-The stop conditions should live in tracked project docs (`AGENTS.md`, the loop's launch script, or a dedicated config), not only in the agent's prompt. Prompts are forgettable; tracked config is enforceable. Recommend hooks (PostToolUse on the relevant tools) over prompt instructions when the project supports them: a hook physically cannot be skipped, a prompt instruction can. Confirm the host's hook coverage before recommending one: some agents only fire PostToolUse for a subset of tools (for example, a runtime may match shell/Bash only), so a fixup that must run after file edits belongs on a Stop or session-end hook there instead.
+For projects that use `/loop`, autonomous agents, or any long-running agent flow, load `references/long-running-agents.md` and audit the four hard stop signals it lists. Projects without such a flow skip this check.
 
 ## Step 2: Analyze
 
@@ -127,11 +136,13 @@ Confirm the tier. Then route:
 
 - **Simple:** Analyze locally. No subagents.
 - **Standard:** Analyze locally from the summary output. Do not launch subagents by default. If the user asks for a deep/full/thorough audit, or if local analysis cannot classify a security/control issue, escalate to deep mode and explain the likely token cost.
-- **Complex, remembered deep preference, explicit deep audit, or explicit AI maintainability audit:** Re-run collection with `bash "$HEALTH_SCRIPT" auto deep`, then launch the relevant subagents in parallel. Redact credentials to `[REDACTED]`.
+- **Complex, remembered deep preference, explicit deep audit, or explicit AI maintainability audit:** Re-run collection with `& "$POWERSHELL" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$HEALTH_LAUNCHER" collect auto deep` on Windows, or `BASH_ENV= ENV= /bin/bash -p "$HEALTH_SCRIPT" auto deep` on Linux and macOS. Then launch the relevant subagents in parallel. Redact credentials to `[REDACTED]`.
   - **Agent 1** (Context + Security): Read `agents/inspector-context.md`. Feed `CONVERSATION SIGNALS` section.
   - **Agent 2** (Control + Behavior): Read `agents/inspector-control.md`. Feed detected tier.
   - **Agent 3** (AI Maintainability): Read `agents/inspector-maintainability.md`. Feed only `TIER METRICS`, `AI MAINTAINABILITY SUMMARY` or `AI MAINTAINABILITY DETAIL`, and the script hotspot lists. Launch this agent only for deep health audits, Complex projects, or explicit code-rot/AI-maintainability requests.
 - **Fallback:** If a subagent fails, analyze that layer locally and note "(analyzed locally)".
+
+Before reporting a deep audit as complete, wait for every launched inspector and reconcile its assigned scope. If one remains pending or fails without a local replacement pass, list that scope as unreviewed instead of issuing a whole-scope clean bill.
 
 ## Step 3: Report
 
@@ -171,73 +182,17 @@ Agent instructions in the wrong layer, missing hooks, oversized descriptions, ve
 
 Quick check from the project root, reusing `$HEALTH_SCRIPT` resolved in Step 1:
 
-```bash
-bash "$(dirname "$HEALTH_SCRIPT")/check-agent-context.sh" . summary
+```powershell
+& "$POWERSHELL" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "$HEALTH_LAUNCHER" agent-context . summary
 ```
 
-**AI-maintainability gaps.** Use `AI MAINTAINABILITY SUMMARY` in summary mode and `AI MAINTAINABILITY DETAIL` in deep mode. Report `FAIL` when the project has no executable verification command, no agent instruction surface for a non-trivial repo, or broken doc references. Report `WARN` when instructions exist but lack a project map, verification guidance, boundary/non-goal language, when TODO/HACK markers are concentrated, when large source hotspots lack ownership/boundary and verification guidance, when durable docs contain raw one-off review reports, scorecards, dated line references, or diagnostic dumps instead of stable invariants, or when a runtime supports path-scoped instruction loading (Claude Code `.claude/rules/*.md` with `paths` frontmatter, nested-directory `CLAUDE.md`) but a large always-loaded instruction file carries domain- or language-specific rules that only apply under certain paths, so every unrelated session pays their full context cost. The action for the last case is to add `paths` frontmatter (or move the block to a nested `CLAUDE.md` / a skill), not to delete the rule. Treat missing `docs/`, `specs/`, `.specify/`, `HANDOFF.md`, `CHANGELOG`, issue templates, and PR templates as informational unless project complexity makes them necessary for handoff. The action for stale reports is to extract stable rules into public instructions, rules, references, or verifier scripts, then remove or archive the transient report.
-
-**Conversation-derived guidance.** When a health audit reads recent agent conversations, do not recommend copying the conversation or a scorecard into docs. Recommend a candidate-matrix pass instead:
-
-| Field | Question |
-|---|---|
-| Repeated failure | Did this recur across fixes, releases, agents, or user reports? |
-| Durable invariant | Can the lesson be stated as a stable rule, not a dated incident summary? |
-| Target layer | Should it live in project instructions, a Waza skill, a global rule, or private memory? |
-| Verifier | Is there a deterministic command, script, artifact check, or runtime smoke that can enforce it? |
-| Redaction risk | Does the lesson require local paths, issue numbers, customer details, machine state, secrets, or unpublished release facts? |
-
-Layering rule: project-specific commands, app names, artifact names, and release rituals stay in the project; reusable workflows such as cancelled-release review gates or native-freeze evidence ladders belong in Waza skills; universal honesty and verification rules belong in global CLAUDE/AGENTS; private user preferences and one-machine facts stay in memory. If the lesson cannot pass the redaction-risk field, keep it out of public guidance.
-
-Scope by load surface, not just by layer. A rule kept in the project still pays context on every session unless it is bound to where it applies: language and framework rules carry file-type `paths` scope, project-domain rules bind to their source directories (`paths` frontmatter or a nested-directory `CLAUDE.md`), and only genuinely cross-cutting constraints load unconditionally in the always-loaded root. A rule that only matters under one path does not belong in an always-loaded file.
-
-**Concentrated fix chains.** Run `git log --oneline --since='2 weeks ago' | grep -i fix` and group by area (the prefix before `:` or `(`). When the same area has 3+ fix commits in a short window, it signals a missing structural invariant: each fix is a guess at a rule that was never written down. Report a Structural `WARN` with the area name, fix count, and recommend adding an explicit rule to `AGENTS.md` / `CLAUDE.md` / project rules that captures the invariant those fixes were converging toward. A concentrated fix chain that touches the same file 4+ times is a stronger signal than scattered fixes across different files.
-
-**Hotspot ownership gaps.** In deep mode, read `HOTSPOT OWNERSHIP SURFACE`. If a largest source file exceeds the hotspot threshold and `AGENTS.md` / `CLAUDE.md` / shared instruction files do not name who owns the hotspot, what boundary should stay stable, and which verification command covers it, report a Structural `WARN`. Do not treat documented large files as code rot by size alone; some modules are intentionally large.
-
-**Missing stable verifier wrapper.** If the repo exposes multiple verification commands through CI, scripts, or manifests but `Makefile` has no `check`, `test`, or `verify` target, report a Structural `WARN`. This is an AI-maintainability gap because agents need one stable default entrypoint, not because the project is broken.
-
-Quick check from the project root, reusing `$HEALTH_SCRIPT` resolved in Step 1:
+On Linux and macOS:
 
 ```bash
-bash "$(dirname "$HEALTH_SCRIPT")/check-maintainability.sh" . summary
+BASH_ENV= ENV= /bin/bash -p "${HEALTH_SCRIPT%/*}/check-agent-context.sh" . summary
 ```
 
-For deep audits:
-
-```bash
-bash "$(dirname "$HEALTH_SCRIPT")/check-maintainability.sh" . deep
-```
-
-Keep actions concrete and non-invasive: add or fix the smallest useful instruction surface, add one executable validation command, document hotspot ownership and tests, split only when the boundary is already clear, or repair the broken reference. Do not propose broad rewrites from the script output alone.
-
-**Broken doc references.** Scan `AGENTS.md`, `CLAUDE.md`, `.claude/rules/*.md`, and every `.claude/skills/*/SKILL.md` for references shaped like `@<path>`, `~/.claude/rules/<name>.md`, `~/.claude/skills/<name>/`, `docs/<name>.md`, or `references/<name>.md`. For each match, check that the target exists on disk. Report every "referenced but missing" pointer with the source file and line.
-
-Common offenders:
-- A project-level rule references a global rule file that was never created (e.g. `~/.claude/rules/swift.md`).
-- A `CLAUDE.md` uses an `@AGENTS.md` placeholder but the actual `AGENTS.md` is missing or empty.
-- A skill body references `references/<name>.md` but only `references/<name>-v2.md` exists.
-- A rule file references a deleted skill path.
-
-Quick check from the project root, reusing `$HEALTH_SCRIPT` resolved in Step 1:
-
-```bash
-bash "$(dirname "$HEALTH_SCRIPT")/check-doc-refs.sh" .
-```
-
-The checker resolves `@...` and `docs/...` from the project root, expands `~`, resolves `references/...` from each `.claude/skills/<name>/SKILL.md` directory, checks every reference on a line, skips fenced code examples, and exits non-zero when any target is missing.
-
-Report missing references as Structural findings, not Critical, unless the missing file is named as a hard dependency (e.g. `release.md` for the project's release skill).
-
-**Broken Markdown references.** In deep mode, `check-maintainability.sh` also scans repository Markdown links. Report these as Structural findings when they point to missing local files, especially design, security, release, or handoff docs that agents may follow during future work.
-
-**Stale verifier cache output.** If validation output points at a deleted temp worktree or non-existent `/tmp` / `/private/tmp` file, parse the captured log with:
-
-```bash
-bash "$(dirname "$HEALTH_SCRIPT")/check-verifier-output.sh" . <log-file>
-```
-
-Only use this script for existing command output supplied by the user or generated during the current audit. Do not run project tests just to feed this checker. Known actions include `golangci-lint cache clean`, `go clean -cache -testcache`, and `npm cache verify`; unknown tools get a diagnostic rerun action.
+**AI-maintainability findings.** For the maintainability lane (verification surface, conversation-derived guidance, concentrated fix chains, hotspot ownership, verifier wrapper, broken doc and Markdown references, stale verifier cache output), load `references/maintainability-findings.md` and work its checks with `AI MAINTAINABILITY SUMMARY` / `DETAIL`.
 
 ### [-] Incremental -- nice to have
 

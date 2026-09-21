@@ -9,8 +9,6 @@ dispatch_intent: "Error, crash, regression, screenshot-reported defect, test fai
 
 Prefix your first line with 🥷 inline, not as its own paragraph.
 
-**Update check (non-blocking).** Once per conversation, run `bash <skill-base-dir>/scripts/check-update.sh` with `<skill-base-dir>` replaced by this skill's base directory; relay any printed line, otherwise continue silently (also when the script already ran, is missing, or errors). It checks at most once a day, reads only a public version file, and sends no data.
-
 A patch applied to a symptom creates a new bug somewhere else.
 
 ## Outcome Contract
@@ -19,6 +17,7 @@ A patch applied to a symptom creates a new bug somewhere else.
 - Done when: one sentence explains the cause, every observed symptom fits it, and the fix or handoff is verified against a reproducible check.
 - Evidence: source trace, repro command or UI path, logs or state, targeted test/build output, and runtime evidence for UI or native defects.
 - Output: root cause, fix or handoff, verification result, and any unswept sibling risks.
+- Authorization: "diagnose", "investigate", "why", "look into", "排查", "看看", or equivalent is report-only. Apply a fix only when the current turn explicitly asks to fix, change, implement, or optimize; root-cause proof is still required first.
 
 **Do not touch code until you can state the root cause in one sentence:**
 > "I believe the root cause is [X] because [evidence]."
@@ -27,15 +26,13 @@ Name a specific file, function, line, or condition. "A state management issue" i
 
 ## Diagnosis Signals
 
-Good progress: a log line matches the hypothesis, you can predict the next error before running it, you understand the propagation path from root cause to symptom, you can write a test that fails on the old code. At each of these signals, find one more independent piece of evidence before committing.
+Hypothesis quality gate: the hypothesis must explain every observable symptom, not just the one reported first; partial coverage is a symptom-level guess, not a root cause. For timing-dependent issues (flicker, intermittent failure, race), reproduce reliably before diagnosing.
 
-Hypothesis quality gate: before acting on a hypothesis, list all observable symptoms (not just the one the user reported first). The hypothesis must explain every symptom; if it only covers some, it is a symptom-level guess, not a root cause. For timing-dependent issues (flicker, intermittent failure, race condition), reproduce reliably before diagnosing.
-
-Rationalization warning: "I'll just try this" means no hypothesis, write it first. "I'm confident" means run an instrument that proves it. "Probably the same issue" means re-read the execution path from scratch. "It works on my machine" means enumerate every env difference before dismissing. "One more restart" means read the last error verbatim; never restart more than twice without new evidence.
+Rationalization smells: "I'll just try this" = no hypothesis, write it first. "I'm confident" = run the instrument that proves it. "Probably the same issue" = re-read the execution path from scratch. "It works on my machine" = enumerate env differences before dismissing. "One more restart" = read the last error verbatim; never restart more than twice without new evidence.
 
 ## Durable Context Preflight
 
-See [references/durable-context.md](references/durable-context.md) for when to read durable context, the read-order budget, and the memory-type mapping.
+See [references/durable-context.md](references/durable-context.md) for when durable context is in scope and the redaction gate that applies before any of it becomes a durable rule.
 
 For `/hunt`: durable context is hypothesis fuel only, and current code, logs, and repro evidence override memory. It never replaces a fresh root-cause sentence or a reproducible symptom list.
 
@@ -61,29 +58,15 @@ If the bug genuinely needs a refactor first (e.g. the cause cannot be addressed 
 
 Activate when: "以前是好的", "之前是好的", "used to work", "上一次提交还是对的", "broke after update", or the user remembers a specific good commit or version.
 
-0. Protect the user's worktree first: run `git status --short --branch -uall`. If modified, staged, or untracked files exist, do not bisect in the current checkout. Create a temporary detached worktree from the same HEAD, run bisect there, then `git bisect reset` and remove the temporary worktree when done. If a temporary worktree is impossible, stop and ask for explicit cleanup/stash approval.
-1. Find candidate good tag: `git tag --sort=-version:refname | head -10` or ask the user for the last known-good commit.
-1b. If the last-good version is only one or a few releases back, `git diff <last-good-tag>..HEAD -- <suspect path>` and read the delta directly first. The regression is usually visible in that diff, and reading it costs far less than driving a full bisect. Fall through to bisect only when the diff is too large or the culprit is not obvious.
-2. Define a non-interactive pass/fail test command before starting bisect. Bisect is worthless without a reproducible check.
-3. Run: `git bisect start && git bisect bad HEAD && git bisect good <tag-or-hash>`
-4. At each step bisect checks out a commit. Run the test command. Mark: `git bisect good` or `git bisect bad`.
-5. Let bisect drive. Do not jump ahead or skip commits unless explicitly asked.
-6. When bisect names the culprit commit, read only that diff. Identify the specific line that introduced the regression.
-7. Run `git bisect reset` when done.
-
-Read large files once and reference from notes rather than re-reading at each bisect step.
+- Protect the user's worktree first: `git status --short --branch -uall`. Any modified, staged, or untracked files mean no bisect in the current checkout: run it in a temporary detached worktree and remove that worktree when done. If a temporary worktree is impossible, stop and ask for explicit cleanup/stash approval.
+- If the last-good version is only a few releases back, `git diff <last-good>..HEAD -- <suspect path>` and read the delta first. The regression is usually visible there at a fraction of a bisect's cost; fall through to bisect only when the diff is too large or the culprit is not obvious.
+- Bisect only with a non-interactive pass/fail command defined up front, and keep the bookkeeping in git (`git bisect good/bad`), including when you test a suspect commit directly. When it names the culprit, read only that diff down to the specific line, then run `git bisect reset` before removing the temporary worktree.
 
 ## Repeated Regression / Screenshot Reference Mode
 
 Activate when the user says the same issue is still wrong after a fix, provides a "good" screenshot/version/file, or describes a visual result as previously correct.
 
-Treat the reference as evidence, not decoration:
-
-1. List every reported and visible symptom, preserving the user's concrete words where useful ("still slow", "not clear", "尖刺", "先显示上一个内容").
-2. Identify the reference oracle: last-good commit/tag, old build, fixture, screenshot, downloaded artifact, or expected state from the user's description.
-3. Define the pass/fail check before editing. For visual bugs, this may be a narrow screenshot checklist plus the command that renders the view; for behavioral bugs, prefer an automated regression test or deterministic repro.
-4. Compare current vs. reference and name the exact delta. Do not generalize a visual defect into "style polish" when the evidence points to a broken render, race, font pipeline, or state path.
-5. If the same symptom remains after one attempted fix, stop and rebuild the hypothesis from the evidence. Do not stack more patches onto a disproven explanation.
+Treat the reference as evidence, not decoration: list every reported and visible symptom in the user's concrete words ("still slow", "尖刺", "先显示上一个内容"); identify the reference oracle (last-good commit, old build, fixture, screenshot, described expected state); define the pass/fail check before editing; then name the exact current-vs-reference delta. Do not generalize a visual defect into "style polish" when the evidence points to a broken render, race, font pipeline, or state path. If the same symptom survives one attempted fix, stop and rebuild the hypothesis from the evidence; do not stack patches onto a disproven explanation.
 
 If the issue is purely subjective UI taste, route to `/ui`. If it is rendering, state, timing, build output, font generation, or a regression from a known-good version, stay in `/hunt`.
 
@@ -91,18 +74,7 @@ If the issue is purely subjective UI taste, route to `/ui`. If it is rendering, 
 
 Activate after fixing a root-cause pattern, before declaring the bug done; also when the user says "举一反三", "举一反三深入看看", or "其他地方有没有同样问题". The same shape often hides in N other places; one local fix that ignores the blast leaves N - 1 bugs in the tree.
 
-1. Extract the pattern signature: the specific function name, regex, API call, CSS selector, lock acquisition, validation skip, or input boundary that produced the bug.
-2. `grep -rn <pattern>` across the repo (exclude generated dirs, build output, vendored deps). For class-of-bug patterns (e.g. "any handler missing the lock"), grep for the surrounding shape, not just the literal text.
-3. List every match. For each one, answer in writing: same bug here? Pick fix / leave (explain why it is safe) / unsure (ask the user). Do not silently skip a match.
-4. Do not claim "fixed" until the blast report is in the Output block.
-
-Common triggers:
-- Visual bug fixed on one page: check every other page using the same component, layout, or media-query breakpoint.
-- One race fixed in one handler: check every handler acquiring the same lock or touching the same shared state.
-- One validation skip patched at one entry point: check every entry point that reaches the same downstream sink.
-- One regex / parser fix for one input shape: check every caller of the same regex / parser.
-
-If the blast surfaces unrelated bugs, list them but do not fix in this PR unless the user agrees; scope creep is its own anti-pattern.
+Extract the pattern signature (the specific function, regex, API call, CSS selector, lock acquisition, validation skip, or input boundary that produced the bug) and `grep -rn` it across the repo, excluding generated dirs, build output, and vendored deps; for class-of-bug patterns ("any handler missing the lock"), grep the surrounding shape, not just the literal text. For every match, answer in writing: same bug / safe to leave (why) / unsure (ask the user). Do not silently skip a match, and do not claim "fixed" until the blast report is in the Output block. Unrelated bugs the sweep surfaces get listed, not fixed in this PR, unless the user agrees.
 
 ## Confirm or Discard
 
@@ -119,6 +91,8 @@ Use this ladder before claiming a bug is fixed:
 5. Real runtime check: for UI, native app, browser, rendering, or visual bugs, open the app/page/artifact and verify the visible result with a screenshot or concrete checklist.
 
 Compile-only is not enough for UI, native-app, visual, rendering, or generated-artifact bugs. If the runtime check is impossible in the environment, say why and hand off the exact screen, command, or artifact to verify.
+
+When the reporter's environment is the missing rung and it cannot be reproduced locally, the next artifact is a read-only probe they can paste and run, not another hypothesis. Have it print the environment, the disputed measurement, and the state of whatever the hypothesis turns on, and nothing that could carry a secret or a private path. Assume none of your own layout: their install method, directory conventions, locale, shell, and version all differ, so discover rather than hardcode. Ship it as plain copyable text with one command to run and one block to paste back. Two rounds of "could you check whether..." without a probe is the shape this replaces.
 
 For recurring classes of failures, load `references/failure-patterns.md` before adding a second fix.
 
@@ -144,18 +118,7 @@ Compile-only and source-only checks are insufficient for this mode. The outcome 
 
 ## Targeted Logging
 
-Use logs as a scalpel, not as noise. Before adding a log, write the question it answers:
-
-> "If this log prints X before Y, hypothesis A is still possible; if it does not, hypothesis A is wrong."
-
-Load `references/logging-techniques.md` for the full logging playbook: binary-search instrumentation, discriminating log content, boundary-first placement, timing bug logging, and removal discipline.
-
-Quick rules:
-1. Place the first log at the midpoint of the execution path, not at the symptom. Binary search from there.
-2. Log discriminating facts only: sequence number, input key, branch taken, old/new state, error code.
-3. Remove temporary logs before finishing. Gate persistent diagnostics behind the project's debug flag.
-
-If adding logs changes the behavior, treat that as evidence of a timing, lifecycle, or concurrency problem.
+Every log is a yes/no question: "if this prints X before Y, hypothesis A survives; otherwise A is dead." A log that cannot rule a hypothesis in or out is noise. Remove temporary logs before finishing; gate persistent diagnostics behind the project's debug flag. If adding a log changes the behavior, that is itself evidence of a timing, lifecycle, or concurrency problem. Full playbook: `references/logging-techniques.md`.
 
 ## Gotchas
 
@@ -172,8 +135,12 @@ If adding logs changes the behavior, treat that as evidence of a timing, lifecyc
 | Worked when launched from app, broke when opened via file association / drag-drop / deep link / external proxy | Reproduce using the exact entry point the user described. App-internal init differs from cold-launch-with-file init; state may not be ready when the document arrives. |
 | Build passed but UI still looked wrong | Move up the Runtime Evidence Ladder and verify the real rendered surface or artifact. |
 | Fix matched the reporter's setup but changed nothing for everyone else, or regressed the default | A defect report is evidence, not the full scope. State whether the fix changes the default experience for all users or only the reporter's configuration, and prefer fixing the default path. |
+| Broke after toggling theme / mode / locale, fine after restart | State not re-applied on the toggle path. Trace the toggle's recompute or invalidation route first; do not tune styles pixel by pixel while the state path is broken. |
 | Changed the algorithm but the output stayed wrong | The reader may be hitting persisted output written by the old code (scan results, analysis cache, snapshot with a TTL). Changing generated-then-persisted data requires invalidating or version-bumping the old cache in the same change; before re-diagnosing, confirm the runtime is not reading stale data. |
 | Reporter reproduces, local machine is fine, agent patched blind | Produce one copy-paste diagnostic command first (single command, silent collection, one output file, a privacy note), diagnose from the returned evidence, then fix. |
+| Fixed the one cause that reproduced, shipped, and the same gate blocked the next user for a different reason | A guard that refuses has a set of causes, not one. Enumerate every branch that can refuse before shipping, and give each a distinguishable code, a one-line reason, and a next command. |
+| User counted N occurrences, the log showed M, and the log won | Trust the observation and treat the gap as an un-instrumented path. A probe that passes on the happy path says nothing about the failing one; a probe that cannot reproduce is an invalid probe, not an absent defect. |
+| Patched a capability-gated feature on a surface that never offered the capability | Confirm the run surface (simulator, device, sandbox, restricted entitlement) supports it before writing a fix. If it does not, say so and stop; no source change makes it appear. |
 
 ## Rendering Bug Mode
 
@@ -206,6 +173,7 @@ Status: **resolved**, **resolved with caveats** (state them), or **blocked** (st
 1. A regression test exists that fails on the unfixed code and passes on the fixed code.
 2. The test lives in the project's test suite, not a temporary file.
 3. The commit message states why the bug recurred and why this fix prevents it.
+4. Red-green was **run**, not assumed: revert the fix (or stash it), watch the new test fail, restore the fix, watch it pass. A regression test that has only ever been observed passing pins nothing. State the red run in the output. Two shapes make this fail silently and both have shipped: a framework or syntax where a failing assertion mid-test does not fail the test, so only the last one gates (in shell suites this can hinge on the bracket form alone, with one keyword swallowed and the other caught, so confirm which by running a two-line minimal repro rather than reasoning about it); and an assertion that the wrong string is absent, which passes forever because that string was never emitted under any code version. Any negative assertion ("output must not contain X") also needs a paired positive case in the same test proving the assertion can fail at all.
 
 ### Handoff Format (after 3 failed hypotheses)
 
