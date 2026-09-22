@@ -1201,11 +1201,135 @@ class SyncSkillsTests(unittest.TestCase):
             ):
                 _, blocked = sync_skills.sync_links(manifest)
 
-            self.assertEqual(blocked, 2)
+            self.assertEqual(blocked, 1)
             self.assertTrue(alias.is_symlink())
             self.assertEqual(alias.resolve(), check.resolve())
             self.assertTrue(wrong.is_symlink())
             self.assertEqual(wrong.resolve(), ui.resolve())
+
+    def test_link_main_is_offline_creates_directories_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skills = root / "skills"
+            skill = skills / "check"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text("local version\n")
+            agent = root / "new-home" / "agent" / "skills"
+            manifest = self.manifest(
+                self.source("check"), {"codex": {"dir": str(agent), "exclude": []}}
+            )
+            manifest_path = root / "upstream.json"
+            manifest_path.write_text(json.dumps(manifest))
+            original = manifest_path.read_bytes()
+            with (
+                mock.patch.object(sync_skills, "SKILLS", skills),
+                mock.patch.object(sync_skills, "MANIFEST", manifest_path),
+                mock.patch.object(sync_skills.shutil, "which", side_effect=AssertionError("gh dependency")),
+                mock.patch.object(sync_skills, "gh", side_effect=AssertionError("network access")),
+                mock.patch.object(sync_skills.sys, "argv", ["sync-skills.py", "--link"]),
+                redirect_stdout(io.StringIO()),
+            ):
+                sync_skills.main()
+                link_stat = (agent / "check").lstat()
+                sync_skills.main()
+            self.assertTrue((agent / "check").is_symlink())
+            self.assertEqual((agent / "check").resolve(), skill.resolve())
+            self.assertEqual((agent / "check").lstat().st_ino, link_stat.st_ino)
+            self.assertEqual((skill / "SKILL.md").read_text(), "local version\n")
+            self.assertEqual(manifest_path.read_bytes(), original)
+
+    def test_link_dry_run_reports_missing_directory_without_creating_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skills = root / "skills"
+            skills.mkdir()
+            agent = root / "missing" / "skills"
+            manifest = self.manifest(
+                self.source(), {"codex": {"dir": str(agent), "exclude": []}}
+            )
+            with mock.patch.object(sync_skills, "SKILLS", skills), redirect_stdout(io.StringIO()):
+                self.assertEqual(sync_skills.sync_links(manifest, dry=True), (1, 0))
+            self.assertFalse(agent.parent.exists())
+
+    def test_link_preserves_external_directories_but_blocks_name_conflicts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skills = root / "skills"
+            skill = skills / "check"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text("upstream\n")
+            agent = root / "agent"
+            synced = agent / "synced"
+            synced.mkdir(parents=True)
+            (synced / "local.txt").write_text("keep\n")
+            manifest = self.manifest(
+                self.source("check"), {"codex": {"dir": str(agent), "exclude": []}}
+            )
+            with mock.patch.object(sync_skills, "SKILLS", skills), redirect_stdout(io.StringIO()):
+                self.assertEqual(sync_skills.sync_links(manifest), (1, 0))
+                (agent / "check").unlink()
+                (agent / "check").mkdir()
+                (agent / "check" / "SKILL.md").write_text("unique\n")
+                self.assertEqual(sync_skills.sync_links(manifest), (0, 1))
+            self.assertEqual((synced / "local.txt").read_text(), "keep\n")
+            self.assertEqual((agent / "check" / "SKILL.md").read_text(), "unique\n")
+
+    def test_link_blocks_unusable_root_and_external_broken_links(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skills = root / "skills"
+            skills.mkdir()
+            agent = root / "agent"
+            manifest = self.manifest(
+                self.source(), {"codex": {"dir": str(agent), "exclude": []}}
+            )
+            agent.write_text("keep\n")
+            with mock.patch.object(sync_skills, "SKILLS", skills), redirect_stdout(io.StringIO()):
+                self.assertEqual(sync_skills.sync_links(manifest), (0, 1))
+                self.assertEqual(agent.read_text(), "keep\n")
+                agent.unlink()
+                agent.symlink_to(root / "missing")
+                self.assertEqual(sync_skills.sync_links(manifest), (0, 1))
+                self.assertTrue(agent.is_symlink())
+                agent.unlink()
+                agent.mkdir()
+                broken = agent / "external"
+                broken.symlink_to(root / "missing")
+                self.assertEqual(sync_skills.sync_links(manifest), (0, 1))
+                self.assertTrue(broken.is_symlink())
+
+    def test_cache_noise_is_ignored_only_in_report_not_write_protection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            skills = root / "skills"
+            skill = skills / "check"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_bytes(b"same\n")
+            self.init_git(root, "skills")
+            cache = skill / "__pycache__" / "module.pyc"
+            cache.parent.mkdir()
+            cache.write_bytes(b"cache")
+            manifest = self.manifest(self.source("check"))
+            remote = {"check": {"SKILL.md": (sync_skills.blob_sha(b"same\n"), "100644")}}
+            with (
+                mock.patch.object(sync_skills, "ROOT", root),
+                mock.patch.object(sync_skills, "SKILLS", skills),
+                mock.patch.object(sync_skills, "discover", return_value=remote),
+            ):
+                _, report = sync_skills.plan(manifest)
+                self.assertEqual(report["drift"], [])
+                self.assertIn("__pycache__/module.pyc", sync_skills.local_state(skill))
+                self.assertIsNotNone(sync_skills.git_worktree_issue("check"))
+                (skill / "notes.txt").write_text("unique\n")
+                _, report = sync_skills.plan(manifest)
+                self.assertEqual([d[2] for d in report["drift"]], ["notes.txt"])
+                remote["check"]["__pycache__/module.pyc"] = (sync_skills.blob_sha(b"upstream"), "100644")
+                _, report = sync_skills.plan(manifest)
+                self.assertEqual({d[2] for d in report["drift"]}, {"notes.txt", "__pycache__/module.pyc"})
+                cache.unlink()
+                cache.symlink_to(root / "outside")
+                _, report = sync_skills.plan(manifest)
+                self.assertTrue(report["unsafe"])
 
     def test_sync_links_restores_concurrent_file_replacing_owned_link(self):
         with tempfile.TemporaryDirectory() as tmp:

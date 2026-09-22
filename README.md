@@ -34,7 +34,7 @@
 
 装、更新、删、软链，全在 `scripts/sync-skills.py` 里，不需要 `npx skills`。
 
-依赖两样：`python3`（只用标准库）和 [`gh` CLI](https://cli.github.com)（`brew install gh && gh auth login`）。脚本靠 `gh` 打 GitHub API，认证和速率限制都由它接管。
+离线建链（`--link`）只需要 `python3`，使用标准库。体检、`list`、升级上游和 `add` 还需要已登录的 [`gh` CLI](https://cli.github.com)（macOS 可用 `brew install gh && gh auth login`），脚本靠它访问 GitHub API。
 
 先分清谁动磁盘：
 
@@ -42,7 +42,7 @@
 |---|---|---|
 | `scripts/sync-skills.py` | 只读 | 完整体检；有需要修复的问题就 exit 1 |
 | `scripts/sync-skills.py list` | 只读 | 列出本地 skill 的来源和软链现状 |
-| `scripts/sync-skills.py --link` | 只改软链 | 补缺、摘断链；不碰 `skills/` 文件 |
+| `scripts/sync-skills.py --link` | 创建目标目录、维护软链及其恢复副本 | 离线补缺、摘受管断链；不查询上游，不碰 `skills/` 文件 |
 | `scripts/sync-skills.py --apply` | 写 `skills/`、软链；必要时改 `upstream.json` | 跟上游；改写整棵时把旧树放进恢复区 |
 | `scripts/sync-skills.py --apply --prune` | 上者 + **移出** skill 目录 | 裁掉有 `managed` 归属、上游已删除且工作树干净的 skill；保留恢复副本 |
 | `scripts/sync-skills.py add …` | 写 `skills/`、`upstream.json`、软链 | 接入一个新来源 |
@@ -51,21 +51,38 @@
 
 ```bash
 git clone https://github.com/sleepingF0x/skills.git ~/.agents
-mkdir -p ~/.claude/skills ~/.codex/skills
-# 若还没有：brew install gh && gh auth login
-~/.agents/scripts/sync-skills.py --apply
+cd ~/.agents
+python3 scripts/sync-skills.py --link
 ```
 
-`--apply` 会按 `upstream.json` 把缺的装齐，并建好两边软链。软链策略在 `links` 里：Claude 拿全部；Codex 除了 `implement-codex` 都拿。那个是让 Claude 委派给 Codex 的，Codex 自己拿到就成了自己委派自己。
+克隆得到的是仓库已提交的版本。`--link` 按当前机器的仓库路径和用户主目录建立链接，自动创建 `links` 中配置的缺失目录，不需要 `gh` 或网络。不要把另一台机器的绝对路径软链接直接复制过来。
 
-### 日常：先体检，再同步
+软链策略在 `upstream.json` 的 `links` 里，各 agent 的 `exclude` 决定哪些 skill 不建链接。只使用一个 agent 时，可以在本机配置中移除另一项。新版 Codex 也能直接读取 `~/.agents/skills/`；此处保留 Codex 链接以兼容现有设置。参考 [OpenAI 的 skill 目录说明](https://learn.chatgpt.com/docs/build-skills)。
+
+### 多台机器同步仓库版本
+
+在更新的机器上先检查改动、提交并推送；其他机器再执行：
+
+```bash
+cd ~/.agents
+git pull --ff-only
+python3 scripts/sync-skills.py --link
+```
+
+未提交、未推送和被 Git 忽略的文件不会随仓库同步。拉取遇到本地改动或分叉时，先处理 Git 状态，不要用强制覆盖。`--link` 可重复执行，已有正确链接保持原样。
+
+`git pull` 同步已经确认的仓库版本；`--apply` 则查询并升级到上游版本。想让多台机器保持一致，在一台机器升级、检查并提交推送，再让其他机器拉取即可。
+
+### 升级上游：先体检，再应用
 
 ```bash
 scripts/sync-skills.py            # 只读体检，什么都不动
 scripts/sync-skills.py --apply    # 写入上游改动，并修好软链
 ```
 
-不带参数就是完整体检：内容漂移、上游新增或删除、本地缺失、未登记、软链断了/缺了/不该有、agent 目录里被拷成实体目录，全报出来，**一个字节都不动**。发现需要修复的内容、登记或软链问题就 **exit 1**，可直接挂 cron 或 CI；`only` 外的可选 skill 只作提示，不影响退出状态。
+不带参数就是完整体检：内容漂移、上游新增或删除、本地缺失、未登记、软链断了/缺了/不该有、目标目录缺失或链接位置被占用，全报出来，**一个字节都不动**。发现需要修复的内容、登记或软链问题就 **exit 1**，可直接挂 cron 或 CI；`only` 外的可选 skill 和不冲突的外部目录只作提示，不影响退出状态。
+
+上游没有的 `__pycache__/` 内文件及 `.pyc`、`.pyo` 文件不计为内容漂移；上游同名文件仍正常比较。这个排除仅影响差异报告：完整基线、安全检查和写入前的 Git 状态保护仍包含缓存。若需要替换的 skill 含本地缓存或其他未提交内容，`--apply` 仍会拒绝覆盖。
 
 `--apply` 会做这些事：
 
@@ -135,12 +152,14 @@ scripts/sync-skills.py --link
 scripts/sync-skills.py --link
 ```
 
-不碰 `skills/` 里的文件，只按 `links` 补缺、移除断链和不该存在的链。仍会先跑一遍上游比对并报告；内容有漂移的话照样 exit 1，只是不动那些文件。
+单独执行 `--link` 完全离线，不依赖 `gh`，不检查上游版本，也不改 `skills/` 或来源登记。它只按本地目录和 `links` 创建缺失的 agent 目录、补链接，并隔离本脚本拥有的断链和不该存在的链。正确链接无需重建。
+
+只要链接维护成功就 exit 0；同名占用、不安全 skill、目标路径不是可用目录、外部断链等问题仍 exit 1，并保留冲突内容。与 `--apply` 合用时按在线升级流程执行；不能与 `list` / `add` 合用，`--link --prune` 也必须带 `--apply`。
 
 ### 它故意不碰的
 
-- agent 目录里的**实体目录 / 普通文件**（不是软链）：可能装着别处没有的东西，不删；只要还在，体检就失败
-- 指向本仓库 `skills/<同名>` 之外的软链（别名、交叉链、仓库外）：只警告，不删。精确的断链也是先移到 agent 目录内的 `.sync-skills-recovery/`；若隔离后发现已被并发替换为别的内容，就保留并报出恢复路径
+- agent 目录里的**实体目录 / 普通文件**（不是软链）：保留。不占所需链接位置（如 Claude 的 `synced/`）时仅提示；同名占用仍报错
+- 指向本仓库 `skills/<同名>` 之外的软链（别名、交叉链、仓库外）：保留。有效且不冲突时仅提示；断链或同名占用仍报错。本脚本拥有的精确断链先移到 agent 目录内的 `.sync-skills-recovery/`；若隔离后发现已被并发替换为别的内容，就保留并报出恢复路径
 - `skills/` 下来源未登记的目录：`--apply` / `--prune` 都不碰；先确认来源并显式登记，本地独有就写进 `upstream.json` 的 `untracked`。`add` 不会覆盖同名目录
 - 声明在 `untracked` 里的（自建、手工跟的译本等）：不跟上游
 - 工作树不干净、又需要改写或删除的受管目录：拒绝覆盖，也拒绝 `--prune`

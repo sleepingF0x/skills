@@ -3,7 +3,7 @@
 
     scripts/sync-skills.py                    体检：内容漂移 + 软链问题，什么都不动（有问题 exit 1）
     scripts/sync-skills.py --apply            拉上游改动，并把软链修到位
-    scripts/sync-skills.py --link             只修软链，不碰文件
+    scripts/sync-skills.py --link             离线建链/修链，创建缺失的 agent 目录
     scripts/sync-skills.py --apply --prune    移出有归属记录、且上游已删的干净 skill
     scripts/sync-skills.py list               列出所有 skill：各自的来源，和软链现状
     scripts/sync-skills.py add <owner/repo> [skill...]   装一个新来源的 skill
@@ -184,6 +184,12 @@ def local_state(skill_dir: Path) -> dict:
             mode = "100755" if fp.lstat().st_mode & 0o111 else "100644"
             out[str(fp.relative_to(skill_dir))] = (blob_sha(fp.read_bytes()), mode)
     return out
+
+
+def is_runtime_cache(rel: str) -> bool:
+    """仅用于上游差异报告；完整基线与写入保护仍包含这些文件。"""
+    path = PurePosixPath(rel)
+    return "__pycache__" in path.parts or path.suffix in {".pyc", ".pyo"}
 
 
 def fetch_blob(repo: str, sha: str, path: str) -> bytes:
@@ -463,6 +469,8 @@ def plan(manifest):
                 if rel in keep:
                     continue
                 u, l = up.get(rel), loc.get(rel)
+                if u is None and is_runtime_cache(rel):
+                    continue  # 上游自带的同名文件仍需比较，缓存也不从基线删除。
                 if u == l:
                     continue
                 kind = ADDED if l is None else (EXTRA if u is None else CHANGED)
@@ -932,8 +940,15 @@ def sync_links(manifest, dry=False):
     for agent, cfg in manifest["links"].items():
         d = Path(os.path.expanduser(cfg["dir"]))
         if not d.is_dir():
-            print(f"  {YELLOW}跳过{RESET} {agent}：{d} 不存在")
-            continue
+            if d.exists() or d.is_symlink():
+                print(f"  {RED}警告{RESET} {agent}：{d} 不是可用目录 —— 不会覆盖")
+                blocked += 1
+                continue
+            print(f"  {GREEN}{'待创建目录' if dry else '创建目录'}{RESET} {d}")
+            fixable += 1
+            if dry:
+                continue
+            d.mkdir(parents=True, exist_ok=True)
         wanted = {n for n in wanted_all if n not in cfg["exclude"]}
 
         for entry in sorted(d.iterdir()):
@@ -943,9 +958,10 @@ def sync_links(manifest, dry=False):
             if not entry.is_symlink():
                 # 实体目录或文件。可能装着别处没有的内容，绝不替用户删。
                 what = "实体目录" if entry.is_dir() else "普通文件"
-                print(f"  {RED}警告{RESET} {agent}/{entry.name} 是{what}，不是软链 —— "
-                      f"它在版本控制外面，我不会动它")
-                blocked += 1
+                conflict = entry.name in wanted or entry.name in unsafe_skills
+                print(f"  {YELLOW}{'警告' if conflict else '提示'}{RESET} {agent}/{entry.name} "
+                      f"是{what}，{'占用所需链接位置' if conflict else '与所需链接无冲突'} —— 保留")
+                blocked += int(conflict)
                 continue
 
             dest = Path(os.path.realpath(entry))
@@ -953,9 +969,12 @@ def sync_links(manifest, dry=False):
             if dest != expected:
                 # 本脚本只会创建 name -> skills/name。别名、交叉链和仓库外
                 # 的链都没有所有权证据，绝不替用户删。
-                print(f"  {YELLOW}警告{RESET} {agent}/{entry.name} 指向 {dest}，"
-                      f"而预期是 {expected} —— 我不会动它")
-                blocked += 1
+                conflict = entry.name in wanted or entry.name in unsafe_skills
+                broken = not entry.exists()
+                print(f"  {YELLOW}{'警告' if conflict or broken else '提示'}{RESET} "
+                      f"{agent}/{entry.name} 指向 {dest}"
+                      f"（{'断链' if broken else '外部链接或别名'}） —— 保留")
+                blocked += int(conflict or broken)
                 continue
 
             if entry.name in unsafe_skills:
@@ -1257,7 +1276,7 @@ def show(r):
 def main():
     ap = argparse.ArgumentParser(description="装新 skill、跟上游对齐、维护软链")
     ap.add_argument("--apply", action="store_true", help="把上游改动写进 skills/（并顺带修软链）")
-    ap.add_argument("--link", action="store_true", help="只修软链")
+    ap.add_argument("--link", action="store_true", help="离线建链/修链，创建缺失目录；与 --apply 合用时仍查询上游")
     ap.add_argument(
         "--prune", action="store_true",
         help="移出有 managed 归属、上游已删且工作树干净的 skill（保留恢复副本）",
@@ -1273,11 +1292,24 @@ def main():
 
     args = ap.parse_args()
 
-    if not shutil.which("gh"):
-        die("需要 gh CLI（brew install gh && gh auth login）")
+    if args.link and args.cmd:
+        ap.error("--link 不能与 list/add 子命令合用")
+    if args.link and args.prune and not args.apply:
+        ap.error("--link --prune 需要 --apply；离线建链不会裁剪 skill")
 
     manifest_original = MANIFEST.read_bytes()
     manifest = json.loads(manifest_original)
+
+    if args.link and not args.apply:
+        print(f"{BOLD}本地软链{RESET}  不查询上游、不修改 skill 内容")
+        fixable, blocked = sync_links(manifest)
+        if blocked:
+            sys.exit(1)
+        print(f"  {GREEN}{'软链已更新' if fixable else '软链无需更新'}{RESET}")
+        return
+
+    if not shutil.which("gh"):
+        die("需要 gh CLI（brew install gh && gh auth login）")
 
     if args.cmd == "list":
         cmd_list(manifest)
