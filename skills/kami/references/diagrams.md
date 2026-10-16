@@ -8,23 +8,24 @@ Every diagram is a **self-contained HTML + inline SVG**: no JS and no build step
 
 ## 1. Selection
 
-| Showing… | Use | Template |
+| Showing… | Use | Template or command |
 |---|---|---|
 | System components + connections | **Architecture** | `assets/diagrams/architecture.html` |
 | Full-system panorama: five layers, control plane, roadmap, owners | **Architecture Board** | `assets/diagrams/architecture-board.html` |
 | Decision branches, "if A then B else C" | **Flowchart** | `assets/diagrams/flowchart.html` |
 | Two-axis positioning / prioritization | **Quadrant** | `assets/diagrams/quadrant.html` |
-| Category comparison (revenue, market share, quarterly) | **Bar Chart** | `assets/diagrams/bar-chart.html` |
-| Trend over time (stock price, growth rate, time series) | **Line Chart** | `assets/diagrams/line-chart.html` |
-| Proportional breakdown (spend, user segments, share) | **Donut Chart** | `assets/diagrams/donut-chart.html` |
+| Category comparison (revenue, market share, quarterly) | **Bar Chart** | `--chart` type `bar` (section 9) |
+| Trend over time (stock price, growth rate, time series) | **Line Chart** | `--chart` type `line` (section 9) |
+| Proportional breakdown (spend, user segments, share) | **Donut Chart** | `--chart` type `donut` (section 9) |
+| Ranking, or a share split into 7+ parts | **Horizontal bar** | `--chart` type `hbar` (section 9) |
 | Finite states + directed transitions (lifecycle, state machine) | **State Machine** | `assets/diagrams/state-machine.html` |
 | Time axis + milestone events (roadmap, project progress) | **Timeline** | `assets/diagrams/timeline.html` |
 | Cross-responsibility process (multi-role, API request path) | **Swimlane** | `assets/diagrams/swimlane.html` |
 | Hierarchical relationships (org chart, module deps, directory tree) | **Tree** | `assets/diagrams/tree.html` |
 | Vertically stacked system layers (OSI, application stack) | **Layer Stack** | `assets/diagrams/layer-stack.html` |
 | Set intersections (feature overlap, audience comparison, capability map) | **Venn** | `assets/diagrams/venn.html` |
-| OHLC price action (stock price, trading days, up/down candles) | **Candlestick** | `assets/diagrams/candlestick.html` |
-| Revenue bridge, valuation decomposition, cash flow breakdown | **Waterfall** | `assets/diagrams/waterfall.html` |
+| OHLC price action (stock price, trading days, up/down candles) | **Candlestick** | `--chart` type `candlestick` (section 9) |
+| Revenue bridge, valuation decomposition, cash flow breakdown | **Waterfall** | `--chart` type `waterfall` (section 9) |
 
 Not on the list:
 - **Compare two things**: use a table. A three-column table beats any diagram of a binary contrast.
@@ -49,7 +50,7 @@ If "no", don't draw. Diagrams add signal to hierarchy, direction, and magnitude.
 - A line whose meaning is obvious from layout -> remove the line
 - 5 nodes in ink-blue -> you haven't decided what's focal
 
-**Teaching tier: 6-7/10.** A figure inside a technical teaching article (the reader expects to learn how something works) carries more: layers, data-flow direction, and at least one labeled trade-off or decision point. A 3-box overview shipped as an "architecture diagram" in that context reads as marketing, and readers say so. If hand-assembled SVG cannot hold that detail at the target display width, switch to the host-image illustration path (SKILL.md «Illustrations») instead of enlarging the SVG.
+**Teaching tier: 6-7/10.** A figure inside a technical teaching article (the reader expects to learn how something works) carries more: layers, data-flow direction, and at least one labeled trade-off or decision point. A 3-box overview shipped as an "architecture diagram" in that context reads as marketing, and readers say so. If hand-assembled SVG cannot hold that detail at the target display width, switch to the host-image illustration path (section 11) instead of enlarging the SVG.
 
 **Focal rule**: 1-2 focal elements per diagram (`#1B365D` stroke + `#EEF2F7` fill). Everything else goes neutral. Focal signal comes from contrast, not count.
 
@@ -299,6 +300,45 @@ Node titles carry function first, protocol noun second. A bare protocol noun out
 
 In-diagram copy holds objects, boundaries, and actions only; argument stays in prose. CJK copy inside nodes uses short labels with commas, slashes, and semicolons, never the CJK full stop (。). If a line needs a full stop, it is a sentence, and sentences live in the document, not the diagram.
 
+### Executable architecture geometry
+
+Keep HTML as the only source: mark the existing visible node rectangle with
+`data-node="api"`, the line or polyline shaft with `data-edge="enqueue"`,
+`data-from="api"`, and `data-to="queue"`. Mark a relationship label's existing
+background rectangle with `data-label-for="enqueue"`. IDs stay stable when text
+or positions change. Do not mark arrowheads, legends, or boundary frames as nodes.
+The architecture figure and the board's main path demonstrate this contract.
+
+`python3 scripts/build.py --check` checks the shipped templates;
+`python3 scripts/build.py --check-style filled.html` checks a filled document.
+These checks report duplicate IDs, missing endpoints, overlapping node rectangles
+or label masks, lines through nodes or other labels, and endpoints that do not
+attach outward within 8 SVG units of the named node edge. The board's intentional
+4px standoff remains valid. Rectangle-edge grazing and crossing a real boundary
+frame are allowed; neither means passing through a node.
+
+This is a bounded static check, not a browser layout engine. Marked geometry uses
+numeric SVG user coordinates on `rect`, `line`, and `polyline`, without inline
+style or ancestor transforms/styles. Do not override its geometry through CSS,
+animation, or reuse elements. Curved paths and unmarked diagrams remain outside
+this contract. Text must fit its label mask at the final display size; inspect
+actual Chinese and Latin font rendering in the visual pass. A passing mask check
+does not establish text fit, arrowhead visibility, or factual architecture accuracy.
+
+Preserve meaningful relationship labels: protocol, action, direction, and
+synchronous/asynchronous behavior. When a label does not fit, move its mask and
+text together, widen the corridor, or reroute the edge. Do not shrink text or
+remove meaning to pass a check. Multiple branches need separate attachment points;
+keep their order stable and leave room at corners.
+
+Record verified source paths and the source revision in the existing `prompt.md`
+blocks, including evidence for relationships, not just component names. Source
+existence alone does not prove a call or dependency. During updates distinguish
+changed relationships from moved boxes; preserve stable IDs for unchanged objects.
+
+The semantic-geometry approach draws on [Archify](https://github.com/tt-a1i/archify).
+Kami retains static SVG and its existing typography; no Archify runtime is bundled.
+
 ### Terminology sync
 
 The diagram and its host document are one vocabulary. When prose renames an object, the same change updates: SVG `<text>` labels, `<title>` and `<desc>`, `prompt.md`, the re-exported PNG, and any cross-references. A diagram that still shows the old name is a bug, not a style issue.
@@ -543,75 +583,43 @@ Scan for these when drawing or reviewing:
 
 ---
 
-## 9. Data charts (bar / line / donut)
+## 9. Data charts
 
-Five data-driven chart types for investment reports, financial comparisons, and market-share breakdowns. Like the first three diagram types, all are self-contained HTML + inline SVG, embeddable in any kami document.
+Six chart types for investment reports, financial comparisons, and market-share breakdowns: bar, line, hbar (horizontal bar), donut, candlestick, and waterfall. Never place bars, points, or arcs by hand. Write the numbers as a JSON spec and generate the SVG, so the geometry always comes from the data:
 
-### Color palette (derived from kami warm palette)
+```bash
+python3 scripts/build.py --chart revenue.json -o revenue.svg
+```
 
-| Role | Value | Use |
+Paste the generated `<svg>` into a `<figure>` at the full width of its column and give it no `height` or `max-height`: the chart is sized for a document column (about 75mm tall at 170mm wide, labels near 8.5pt), and a height cap shrinks every label with it. For a chart shown small, a half-column slide or two charts side by side, add `"size": "compact"` to the spec instead of scaling the SVG down. The caption states the insight, not the data range. The SVG carries its spec in `data-kami-spec`; `--deliver` (and `--check-charts`) regenerates every chart from that spec and fails when a mark or label was edited afterwards. To change a number, edit the spec and regenerate. Styling the root `<svg>` tag for layout (width, margins) is fine; the marks inside are not.
+
+**Choosing the chart.** When content carries numbers, pick the chart yourself and embed it without asking. Two house calls differ from the common default: a share that sums to about 100% renders as a donut only up to 6 items, and 7 or more becomes an hbar; a single time series whose absolute count changes dominate (not the rate) renders as bars, not a line. When several types fit, prefer the one that shows variance most clearly.
+
+### Spec
+
+```json
+{"type": "bar", "categories": ["2022", "2023", "2024"],
+ "series": [{"name": "Revenue", "values": [44, 60, 72]},
+            {"name": "Gross profit", "values": [18, 27, 35]}],
+ "unit": "USD m", "prefix": "$", "source": "Company filings, FY2024"}
+```
+
+| Type | Data fields | Limit |
 |---|---|---|
-| Primary series | `#1B365D` ink-blue | First group / focal data |
-| Series 2 | `#504e49` olive | Second group |
-| Series 3 | `#6b6a64` stone | Third group |
-| Series 4 | `#b8b7b0` light-stone | Fourth group |
-| Series 5 | `#d4d3cd` mist | Fifth group |
-| Series 6 | `#EEF2F7` brand-tint | Sixth group |
-| Grid lines | `#e8e7e1` | Axes / reference lines |
-| Data labels | `#141413` near-black | Numeric text |
+| `bar` | `categories`, `series[].name`, `series[].values` | 8 categories, 3 series |
+| `line` | same as bar; `"zero": false` lets the axis start near the data | 12 points, 3 lines |
+| `hbar` | `items[].label`, `items[].value`; `focus` = index drawn in ink-blue (default 0, `null` for none) | 12 rows |
+| `donut` | `items[].label`, `items[].value` (raw values; shares are computed and always sum to 100%); `center_label` | 6 segments |
+| `candlestick` | `points[].label`, `open`, `high`, `low`, `close` | 30 points |
+| `waterfall` | `items[].label`, `items[].value`; `"total": true` marks an opening or closing total (a closing total may omit `value`; if given it must equal the running sum) | 8 bars |
 
-### Data limits
+Optional on every type: `size` (`full`, or `compact` for a slide or narrow column), `unit` (axis caption), `prefix` / `suffix` (value labels), `decimals`, `source` (footnote), `lang` (`cn`, `en`, `ko`; inferred from the labels otherwise, which also picks the font chain), and `title` (accessible name only; the chart draws no title, the figure caption carries it).
 
-| Chart | Max categories | Max series | Template |
-|---|---|---|---|
-| Bar chart | 8 groups | 3 series | `assets/diagrams/bar-chart.html` |
-| Line chart | 12 points | 3 lines | `assets/diagrams/line-chart.html` |
-| Donut chart | 6 segments | n/a | `assets/diagrams/donut-chart.html` |
-| Candlestick | 30 days | n/a | `assets/diagrams/candlestick.html` |
-| Waterfall | 8 segments | n/a | `assets/diagrams/waterfall.html` |
+The generator refuses data that cannot be drawn honestly: a candle whose high and low do not contain its open and close, a waterfall total that disagrees with its running sum, more items than the limit. Fix the data or ask for it; never loosen the spec to get past the error.
 
-### Editing data
+### Palette and geometry (owned by `scripts/chart.py`)
 
-Each file has `<!-- DATA START -->` / `<!-- DATA END -->` comments. Only change SVG elements between those markers (`<rect>` coordinates, `<polyline>` points, `<path>` arcs, `<text>` values). Leave surrounding structure and styles untouched.
-
-**Coordinate rules (same as the first three diagram types)**:
-- All coordinates divisible by 4
-- Bar chart corner radius `rx=2` (distinct from node radius 6-10)
-- Line chart: `<polyline>` points format `"x1,y1 x2,y2 ..."`, data points marked with `<circle>`
-- Donut chart: `<path>` arcs use `A R R 0 large-arc sweep_flag x y`; `large-arc=1` only when segment > 180°
-
-**Bar / line chart Y-axis formula** (default scale: max=140, chart-height=280, scale=2):
-```
-bar_height = value × 2
-bar_top_y  = 320 - bar_height   (baseline y = 320)
-dot_y      = 320 - value × 2
-```
-
-**Donut arc coordinates** (cx=300 cy=200 R=136 r=76, clockwise from top at -90°):
-```
-angle_start = -90 + sum_of_previous_percentages × 3.6
-angle_end   = angle_start + this_percentage × 3.6
-outer_x = 300 + 136 × cos(angle_deg × π/180)
-outer_y = 200 + 136 × sin(angle_deg × π/180)
-inner_x = 300 + 76  × cos(angle_deg × π/180)
-inner_y = 200 + 76  × sin(angle_deg × π/180)
-```
-
-**Candlestick Y-axis formula** (default: price range 100-160, chart-height=280, scale=4.67):
-```
-candle_y = 320 - (price - 100) * 4.67
-Up candle: fill=#1B365D (close > open), body from open_y to close_y
-Down candle: fill=#6b6a64 (close < open), body from close_y to open_y
-Wick: 1.2px stroke from high_y to low_y, centered on candle
-```
-
-**Waterfall formula** (default: max=200, chart-height=280, scale=1.4):
-```
-bar_y = 320 - value * 1.4
-Floating bars: top = running_total_y, height = abs(delta) * 1.4
-Positive: fill=#1B365D · Negative: fill=#6b6a64 · Total: fill=#4d4c48
-Connector: dashed 0.8px #b8b7b0 between adjacent bar edges
-```
+Series run ink-blue `#1B365D`, olive `#504e49`, stone `#6b6a64`, light-stone `#b8b7b0`, mist `#d4d3cd`, brand-tint `#EEF2F7`. Grid lines `#e8e7e1`, value labels near-black `#141413`. Up candles and increases are ink-blue, down candles and decreases stone, waterfall totals charcoal `#4d4c48`. Axes round out to a 1 / 2 / 2.5 / 5 step and bars and areas start at zero. Every chart shares one plot height and one type scale, and its tick labels start at the chart's own left edge, so charts in one document line up with each other and with the text column. The five chart files in `assets/diagrams/` are generated demos of this output; open them to preview, but fill a document through a spec.
 
 ---
 
@@ -633,6 +641,7 @@ python3 scripts/build.py diagram-layer-stack
 python3 scripts/build.py diagram-venn
 python3 scripts/build.py diagram-candlestick
 python3 scripts/build.py diagram-waterfall
+python3 scripts/build.py --chart spec.json -o chart.svg   # a data chart for a document
 
 # or all
 python3 scripts/build.py
@@ -646,7 +655,11 @@ Every diagram template carries a poster-size `@page` sized to its own frame and 
 
 ## 11. Illustration briefs (host image model)
 
-For raster illustrations delegated to the host's image generation (SKILL.md «Illustrations» defines when to switch). The brief is the deliverable Kami controls; write it tightly and the image model has nowhere to drift.
+For raster illustrations delegated to the host's image generation. The brief is the deliverable Kami controls; write it tightly and the image model has nowhere to drift.
+
+**When to switch.** Use this path for a standalone raster illustration, a redraw of a figure, photo, or screenshot in the Kami look, or a figure that needs more detail than hand-assembled SVG holds at the target display width (typically web-article figures at teaching depth, see the density tiers in section 2). Never call an external image API or require a key: if the host exposes image generation, render directly from the brief; if it does not, hand over the same complete brief as text. Route from observed capability, not from a remembered list of hosts.
+
+**Batches.** When one deliverable needs several generated images, drive them through a single handoff file: one line per image (slot, aspect ratio, shared style anchor, prompt, status). Generate in batches of at most 5, update the status column after each batch, and check existing output before regenerating. The style anchor is shared by the whole batch; per-image style drift is the failure mode.
 
 **Brief skeleton**, in order:
 
@@ -668,9 +681,9 @@ For raster illustrations delegated to the host's image generation (SKILL.md «Il
 - Composition reads as a report figure (balanced margins, clear focal point), not as a poster or clip art.
 - The claim is legible at the stated smallest display size; a detail visible only in the full-resolution source does not count.
 - Every exclusion holds, especially version text, invented product surfaces, unrelated decoration, and private identifiers.
-- Style matches the other generated images in the same deliverable (shared style anchor, see SKILL.md batch rule).
+- Style matches the other generated images in the same deliverable (shared style anchor, see «Batches» above).
 
-After a partly successful generation, name what survives before changing the brief. After two look-based rejections, stop blind regeneration and use the SKILL.md comparison protocol: preserve the accepted part, show labeled alternatives in the same frame, and realign on the claim, reference, and exclusions.
+After a partly successful generation, name what survives before changing the brief. After two look-based rejections, stop blind regeneration and use the SKILL.md «Feedback protocol» comparison: preserve the accepted part, show labeled alternatives in the same frame, and realign on the claim, reference, and exclusions.
 
 ---
 

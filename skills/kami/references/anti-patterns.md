@@ -17,10 +17,11 @@ Common failures when AI generates professional documents. Organized by failure t
 | # | Pattern | Bad | Fix |
 |---|---------|-----|-----|
 | 6 | Round numbers implying precision | "Exactly 10,000 users" when the source says "around 10K" | Match the source's precision: "approximately 10,000" |
-| 7 | Fake decimal precision | "Market share: 23.7%" with no cited source | Either cite the source or round to "roughly 24%" |
+| 7 | Fake decimal precision | "Market share: 23.7%" with no cited source | Verify the figure and cite its source, or mark it as unknown; rounding does not make an unsupported number valid |
 | 8 | Metric-narrative disconnect | Chart shows flat revenue, text says "strong momentum" | Text must match what the chart shows |
 | 9 | Invented comparison baselines | "3x faster than alternatives" with no benchmark | Name the alternative and the benchmark method, or remove |
 | 10 | Mixing time periods | YoY growth next to QoQ growth as if comparable | Label every comparison window explicitly |
+| 57 | Unlabelled derived figure | "About 60% less waiting" as a slide headline when the source gave 23 and 9 minutes | Keep the inputs beside it ("23 to 9 minutes, about 61% less") or mark it derived (推算); check the arithmetic |
 
 ## Structure Mimicry
 
@@ -40,6 +41,8 @@ Common failures when AI generates professional documents. Organized by failure t
 | 17 | Chart with no insight title | Chart titled "Revenue by Quarter" | Title states the insight: "Revenue accelerated after Q2 price change" |
 | 18 | Decorative chart that restates the text | Bar chart showing the same three numbers the paragraph just listed | If the text already communicates it, the chart must add a dimension (comparison, trend, distribution) |
 | 19 | Icon or emoji as section marker | Sections led by decorative icons with no semantic value | Use typographic hierarchy (size, weight, spacing) instead |
+| 55 | Label chrome over every heading | `01 · FEATURES` above each section of a page whose sections are not a sequence; `Design · Build · Ship` joining words that are not data fields | Number only real sequences (chapters, slides, steps); keep one eyebrow on the cover or hero at most; a middle dot only separates data fields on one line |
+| 56 | Hand-placed chart geometry | Bar heights or arc endpoints typed into the SVG, so a bar and its label disagree | Write the numbers as a spec and generate the chart with `build.py --chart`; change data in the spec, never in the SVG |
 
 ## Source Gaps
 

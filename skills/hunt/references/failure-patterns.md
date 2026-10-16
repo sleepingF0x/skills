@@ -170,7 +170,7 @@ Checks:
 Signals: a metric is right for some subjects and wrong for others, and the split follows ownership: your own processes/files are correct, root-owned or other-user ones read zero, stale, or absent. No error is logged because the API answered.
 
 Checks:
-- Measure the boundary instead of reading the docs: run the call across owned and non-owned subjects and count how many succeed. "33 of 33 own, 0 of 5 root's" is the evidence; a guess is not.
+- Measure the boundary instead of reading the docs: run the call across owned and non-owned subjects and count how many succeed in each group. Those two counts are the evidence; a guess is not.
 - Check whether the fallback for a denied read carries the same meaning as the primary source. Two different meanings in one column is the bug, even when each value is individually defensible.
 - Prefer a source that answers uniformly for every subject (a tool that reports all processes regardless of owner) over a precise one that silently degrades for some.
 
@@ -190,6 +190,7 @@ Signals: an operation is reported as failed, stalled, or "no progress" while it 
 
 Checks:
 - For each timeout constant, name the slowest *healthy* case (a several-hundred-MB download on a slow link, a first-of-day index rebuild, a tool rebuilding its cache after a cleanup) and confirm the constant clears it with margin. This is the inverse of magic-wait coupling: there the timer is too loose to be a real signal, here it is too tight to allow a healthy slow case.
+- A detector threshold has the same two directions as a timeout. Take the measurement from the incident that motivated the check and set the threshold below it; a rounder number chosen by taste excludes the one case the check exists for. Then confirm it against the healthy population so it does not fire on everything, and check what the detector prints when nothing crosses the line, since a floor that reports "nothing found" exactly when a name was needed is the same defect facing the other way.
 - Replace "no output for N seconds" with a real liveness probe (a growing temp file, a byte counter, a heartbeat) and keep the timeout as the genuine stall guard.
 - For each watchdog, enumerate every exit from the region it guards, including thrown errors and forks into an alternate path. A watchdog that survives a fork fires in the middle of the path that replaced it.
 - Check whether a second bound already covers a genuinely hung run. If so, the extra timer can only ever fire early.

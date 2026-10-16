@@ -1,6 +1,6 @@
 """Artifact production primitives shared by build, verify, and the MCP server.
 
-One home for the render pipeline (read HTML, highlight code blocks, WeasyPrint
+One home for the render pipeline (read HTML, strictly render LaTeX to SVG, highlight code blocks, WeasyPrint
 to PDF, stamp Kami metadata, count pages) and the PPTX fallback build. Before
 this module existed the pipeline lived in build.py and was duplicated by
 verify.py (through injected callbacks, to dodge a circular import) and the MCP
@@ -14,9 +14,13 @@ import os
 import subprocess
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
+from font_compat import use_truetype_fonts
+from hangul import join_hangul_words
 from highlight import highlight_code_blocks
+from math_render import MathRenderError, render_latex_in_html
 from optional_deps import (
     MissingDepError,
     require_pypdf_reader,
@@ -88,10 +92,12 @@ def set_pdf_metadata(pdf_path: Path, author: str | None = None) -> None:
     if not needs_update:
         return
 
+    # Clone the whole document catalog, not only its pages. WeasyPrint writes
+    # useful document-level structures such as outlines, named destinations,
+    # and /Lang; rebuilding from add_page() silently discards those while the
+    # page count and pixels still look correct.
     writer = PdfWriter()
-    for page in reader.pages:
-        writer.add_page(page)
-
+    writer.clone_document_from_reader(reader)
     writer.add_metadata(metadata)
 
     with open(pdf_path, "wb") as f:
@@ -101,16 +107,22 @@ def set_pdf_metadata(pdf_path: Path, author: str | None = None) -> None:
 def render_pdf(src: Path, out: Path) -> int:
     """Render an HTML file to PDF and return its page count.
 
-    The full pipeline every caller must agree on: build-time code highlighting,
-    WeasyPrint with base_url at the source directory, Kami PDF metadata, page
-    count via pypdf. Raises MissingDepError when weasyprint/pypdf are absent;
-    callers decide how to report it.
+    The full pipeline every caller must agree on: strict TeX-to-SVG math rendering,
+    build-time code highlighting, Korean word joining, TrueType copies of
+    CID-keyed CFF fonts, WeasyPrint with base_url at the source directory, Kami PDF metadata, page
+    count via pypdf. Raises MissingDepError when weasyprint/pypdf are absent
+    and MathRenderError when formula source or the locked renderer is invalid;
+    callers decide how to report either failure.
     """
     HTML = require_weasyprint_html()
     PdfReader = require_pypdf_reader()
 
     out.parent.mkdir(parents=True, exist_ok=True)
-    html_text = highlight_code_blocks(src.read_text(encoding="utf-8"))
+    html_text = src.read_text(encoding="utf-8")
+    html_text = render_latex_in_html(html_text)
+    html_text = highlight_code_blocks(html_text)
+    html_text = join_hangul_words(html_text)
+    html_text = use_truetype_fonts(html_text, src.parent)
     # Build and validate beside the destination, then atomically replace it.
     # Metadata stamping and the final page read can still fail after WeasyPrint
     # succeeds; writing straight to `out` would destroy the last good artifact
@@ -127,6 +139,30 @@ def render_pdf(src: Path, out: Path) -> int:
     return page_count
 
 
+_PPTX_REQUIRED_ENTRIES = {
+    "[Content_Types].xml",
+    "_rels/.rels",
+    "ppt/presentation.xml",
+}
+
+
+def _pptx_issue(path: Path) -> str | None:
+    """Return why ``path`` is not a readable PPTX package, else ``None``."""
+    if not path.is_file():
+        return "output not produced"
+    try:
+        with zipfile.ZipFile(path) as archive:
+            bad_entry = archive.testzip()
+            if bad_entry is not None:
+                return f"corrupt ZIP entry: {bad_entry}"
+            missing = sorted(_PPTX_REQUIRED_ENTRIES - set(archive.namelist()))
+    except (OSError, zipfile.BadZipFile) as exc:
+        return f"invalid PPTX package: {exc}"
+    if missing:
+        return f"missing PPTX package entry: {', '.join(missing)}"
+    return None
+
+
 def build_slides(name: str = "slides") -> bool:
     """Run a python-pptx slide script from the shared registry; True on success."""
     source = pptx_targets().get(name)
@@ -140,19 +176,27 @@ def build_slides(name: str = "slides") -> bool:
 
     EXAMPLES.mkdir(parents=True, exist_ok=True)
     out = EXAMPLES / f"{name}.pptx"
-    # Pass --out so the slides script writes directly to the target path. Older
-    # slides.py defaults to 'output.pptx' in cwd; new copies accept --out.
-    result = subprocess.run(
-        [sys.executable, str(src), "--out", str(out)],
-        cwd=str(src.parent),
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        print(f"ERROR: {name}: {result.stderr.strip() or 'script failed'}")
-        return False
-    if out.exists():
-        print(f"OK: {name}: generated {out.name}")
-        return True
-    print(f"ERROR: {name}: {out.name} not produced")
-    return False
+    # Build beside the destination and replace only after the new file proves
+    # to be a readable PPTX package. A successful script that forgets to write
+    # must not let an older output masquerade as this run's artifact.
+    with tempfile.TemporaryDirectory(
+        dir=out.parent,
+        prefix=f".{out.name}-",
+    ) as staging_dir:
+        candidate = Path(staging_dir) / out.name
+        result = subprocess.run(
+            [sys.executable, str(src), "--out", str(candidate)],
+            cwd=str(src.parent),
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print(f"ERROR: {name}: {result.stderr.strip() or 'script failed'}")
+            return False
+        issue = _pptx_issue(candidate)
+        if issue:
+            print(f"ERROR: {name}: {issue}")
+            return False
+        os.replace(candidate, out)
+    print(f"OK: {name}: generated {out.name}")
+    return True

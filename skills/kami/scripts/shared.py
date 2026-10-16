@@ -18,6 +18,16 @@ class TemplateSpec(NamedTuple):
     build_max_pages: int
 
 ROOT = Path(__file__).resolve().parent.parent
+# In a repository checkout the skill lives at <repo>/skills/kami and the
+# website at <repo>/site; an installed skill has neither. Use repository tooling
+# as the marker so a missing site cannot silently disable repository checks.
+REPO_ROOT = (
+    ROOT.parent.parent
+    if ROOT.parent.name == "skills"
+    and (ROOT.parent.parent / "scripts" / "package-skill.sh").is_file()
+    else None
+)
+SITE_ROOT = REPO_ROOT / "site" if REPO_ROOT else None
 TEMPLATES = ROOT / "assets" / "templates"
 DIAGRAMS = ROOT / "assets" / "diagrams"
 EXAMPLES = ROOT / "assets" / "examples"
@@ -35,7 +45,7 @@ CODEX_PLUGIN_INSTALL_COMMANDS = (
     f"codex plugin marketplace add {PUBLIC_REPO}",
     "codex plugin add kami@kami",
 )
-GENERIC_AGENT_INSTALL_COMMAND = f"npx skills add {PUBLIC_REPO}/plugins/kami -a universal -g -y"
+GENERIC_AGENT_INSTALL_COMMAND = f"npx skills add {PUBLIC_REPO} -a claude-code codex cursor -g -y"
 CLAUDE_DESKTOP_PACKAGE_URL = "https://github.com/tw93/kami/releases/latest/download/kami.zip"
 
 # Canonical parchment background color, kept here so build/density
@@ -45,27 +55,21 @@ PARCHMENT_RGB = (0xF5, 0xF4, 0xED)
 _HOMEBREW_PREFIXES = (Path("/opt/homebrew"), Path("/usr/local"))
 
 
-def _default_cache_dir() -> Path:
-    """Return a sensible per-platform fontconfig cache directory."""
-    if sys.platform == "darwin":
-        return Path("/private/tmp/kami-fontconfig-cache")
-    xdg = os.environ.get("XDG_CACHE_HOME")
-    if xdg:
-        return Path(xdg) / "kami"
-    return Path.home() / ".cache" / "kami"
+# macOS-only fontconfig cache base; Linux keeps the caller's XDG_CACHE_HOME.
+_DARWIN_CACHE_DIR = Path("/private/tmp/kami-fontconfig-cache")
 
 
 def configure_weasyprint_runtime() -> None:
     """Make platform-native libraries discoverable before importing WeasyPrint.
 
     On macOS, also surface Homebrew's gobject lib so cairo/pango can load.
-    On Linux/other, only the fontconfig cache hint is set; the system loader
-    is expected to find the libraries.
+    Linux and other platforms keep the caller's XDG cache base unchanged; the
+    system loader and fontconfig already follow the platform default.
     """
-    os.environ.setdefault("XDG_CACHE_HOME", str(_default_cache_dir()))
-
     if sys.platform != "darwin":
         return
+
+    os.environ.setdefault("XDG_CACHE_HOME", str(_DARWIN_CACHE_DIR))
 
     brew_lib = next(
         (p / "lib" for p in _HOMEBREW_PREFIXES if (p / "lib" / "libgobject-2.0.dylib").exists()),
@@ -205,11 +209,15 @@ def public_template_kind(name: str) -> str:
 
 
 def public_document_template_kinds() -> set[str]:
-    """Return public document-template kinds represented by HTML_TEMPLATES."""
+    """Return every normalized document kind represented by HTML_TEMPLATES.
+
+    Do not filter through ``PUBLIC_DOCUMENT_TEMPLATE_KINDS`` here. Callers use
+    this derived set to detect a newly registered document kind whose public
+    facts or content schema have not been added yet.
+    """
     return {
         public_template_kind(name)
         for name in HTML_TEMPLATES
-        if public_template_kind(name) in PUBLIC_DOCUMENT_TEMPLATE_KINDS
     }
 
 
@@ -220,6 +228,22 @@ def public_document_template_count() -> int:
 def rel_to_root(path: Path) -> Path:
     """Return `path` relative to ROOT when possible, else the path unchanged."""
     return path.relative_to(ROOT) if path.is_relative_to(ROOT) else path
+
+
+def resolve_input(raw: str | Path) -> Path:
+    """Resolve a user-supplied file argument.
+
+    Agents call the checks from the directory holding their document, so a
+    relative path means the caller's working directory first. Skill-relative
+    paths (`assets/examples/resume.pdf`) keep working as the fallback.
+    """
+    path = Path(raw).expanduser()
+    if path.is_absolute():
+        return path
+    from_cwd = Path.cwd() / path
+    if from_cwd.exists():
+        return from_cwd
+    return ROOT / path
 
 
 def default_example_pdfs() -> list[str]:
@@ -303,7 +327,13 @@ def load_checks_thresholds() -> dict[str, Any]:
         return json.loads(CHECKS_THRESHOLDS_FILE.read_text(encoding="utf-8"))
     return {
         "rhythm": {"max_content_run": 5, "divider_min_deck_size": 12},
-        "density": {"warn_pct": 0.25, "sparse_pct": 0.50, "dpi": 36},
+        "density": {"warn_pct": 0.25, "sparse_pct": 0.50, "last_page_pct": 0.60, "dpi": 36},
+        "resume_balance": {
+            "min_fill_pct": 0.83,
+            "max_fill_pct": 0.95,
+            "max_gap_pct": 0.12,
+            "dpi": 36,
+        },
         "orphan": {"max_words": 2, "max_chars": 15},
         "visual": {"dpi": 110},
     }

@@ -11,13 +11,15 @@ verification and debugging, and the known pitfalls gathered from production use.
 ### Install
 
 ```bash
-pip install weasyprint pypdf --break-system-packages --quiet
+pip install weasyprint pypdf pymupdf --break-system-packages --quiet
 ```
 
 Linux first-time:
 ```bash
 apt install -y libpango-1.0-0 libpangoft2-1.0-0 fonts-noto-cjk
 ```
+
+Windows: use WSL (Ubuntu) and follow the Linux steps; the helper scripts are Bash, and native Windows WeasyPrint needs the GTK/Pango runtime installed separately.
 
 ### Generate
 
@@ -56,8 +58,9 @@ font-family: Charter, Georgia, Palatino,
              "Times New Roman", serif;
 
 /* Chinese */
-font-family: "TsangerJinKai02", "Source Han Serif SC",
-             "Noto Serif CJK SC", "Songti SC", Georgia, serif;
+font-family: "TsangerJinKai02", "Source Han Serif SC", "Source Han Serif CN",
+             "Noto Serif CJK SC", "Noto Serif SC", "Songti SC", "STSong", "SimSun",
+             Georgia, serif;
 
 /* Japanese */
 font-family: "YuMincho", "Yu Mincho", "Hiragino Mincho ProN",
@@ -66,15 +69,15 @@ font-family: "YuMincho", "Yu Mincho", "Hiragino Mincho ProN",
 
 /* Korean */
 font-family: "Source Han Serif K", "Source Han Serif KR",
-             "Noto Serif KR", "Apple SD Gothic Neo", AppleMyungjo,
-             Charter, Georgia, serif;
+             "Noto Serif KR", "Nanum Myeongjo", AppleMyungjo,
+             "Apple SD Gothic Neo", Charter, Georgia, serif;
 ```
 
 **Font fallback affects page count**. Any font swap requires re-running the page-count check. If output overflows, first confirm the intended font actually loaded. If it did, edit content using pitfall "Hard-limit overflow"; spacing comes later and font size is the last resort.
 
 **Claude Desktop skill ZIPs do not bundle large CJK font files**: `TsangerJinKai02-W04.ttf`, `TsangerJinKai02-W05.ttf`, `SourceHanSerifKR-Regular.otf`, and `SourceHanSerifKR-Medium.otf` can make Claude.ai / Desktop skill upload or execution time out. The ZIP you upload must be the `scripts/package-skill.sh` output under the 6MB package ceiling, never a hand-zipped checkout. `package-skill.sh` excludes those large font files. Templates still keep local-first and jsDelivr fallback `@font-face` paths.
 
-When Chinese or Korean fonts are missing (the skill case), `scripts/ensure-fonts.sh` downloads them to the XDG user font dir (`${XDG_DATA_HOME:-~/.local/share}/fonts/kami`, override with `KAMI_FONT_DIR`), **not** into the skill's `assets/fonts`. fontconfig scans that dir by default on macOS and Linux, so WeasyPrint resolves `TsangerJinKai02` and `Source Han Serif K` from there while the installed skill stays small; online renders still use the jsDelivr `@font-face` URL.
+When Chinese or Korean fonts are missing (the skill case), `scripts/ensure-fonts.sh` downloads them to the XDG user font dir (`${XDG_DATA_HOME:-~/.local/share}/fonts/kami`), **not** into the skill's `assets/fonts`. fontconfig scans that default dir on macOS and Linux, so WeasyPrint resolves `TsangerJinKai02` and `Source Han Serif K` from there while the installed skill stays small; online renders still use the jsDelivr `@font-face` URL. `KAMI_FONT_DIR` overrides the target and is meant for tests: fontconfig does not scan an arbitrary directory, so an override outside a scanned font tree downloads fonts that WeasyPrint and `kami_doctor` never see.
 
 **Standalone HTML export** (sending a filled HTML file to someone else): this is not guaranteed to work outside the project tree. If the recipient cannot set up the font environment, use the PDF output instead.
 
@@ -104,7 +107,7 @@ Remove the `../fonts/` prefix that templates use when fonts are in the project t
 Parchment is the default and keeps shipping. Override to white only when a single
 document is **headed for a home / office printer**: a full-page `#f5f4ed` tint
 bands unevenly and burns toner, where white paper prints clean. This is the one
-sanctioned exception to design.md invariant #1 ("never pure white"), and it is
+sanctioned print exception to design.md invariant #1, and it is
 opt-in per document, never the default render.
 
 White is not a one-line background swap. Parchment also serves as the surface that
@@ -173,8 +176,25 @@ different element for chapter titles, add `.running-title` to that element.
 | `@font-face` | gradients (slow, use sparingly) | CSS animations / transitions |
 | `break-before` / `break-inside: avoid` | | |
 | CSS variables `var(--name)` | | |
-| `target-counter(attr(href), page)` for rendered TOC page numbers | | |
+| `target-counter(attr(href), page)` on a block anchor (pitfall 24) | | |
 | `::before` / `::after` | | |
+
+### Strict LaTeX mathematics
+
+WeasyPrint has no JavaScript runtime, so MathJax/KaTeX script tags do **not** render mathematics. Kami therefore uses a local MathJax SVG path backed by Node.js 20 or Node.js 22 and newer. Author source formulas strictly as inline `\( ... \)` or display `\[ ... \]` in rendered body text. Delimiters inside title metadata, form options, literal/code/script/style/SVG/template/MathML regions are ignored. Do not ship Unicode approximations, raw TeX, or screenshot formulas.
+
+```bash
+# One-time dependency check/install
+bash scripts/ensure_mathjax.sh
+
+# Convert every standard LaTeX delimiter pair in delivered HTML to MathJax SVG
+python3 scripts/math_render.py --in-place filled.html
+
+# A completed HTML must have no raw TeX delimiters
+python3 scripts/math_render.py --check filled.html
+```
+
+`render_pdf` performs the same conversion in memory as a hard fallback and fails on unmatched delimiters, invalid TeX, author-controlled color/HTML/link commands, unsafe MathJax markup, or a missing locked runtime. Formulas inherit the document's text color. The in-place command writes atomically and remains required when HTML itself is delivered, reviewed, or reused. MathJax SVG is vector output and prints sharply in WeasyPrint PDFs.
 
 ### PDF metadata
 
@@ -412,17 +432,21 @@ For light verification of the theme and sample deck, prefer the HTML path.
 
 ## Part 3 · Verify & Debug
 
-### The three-step loop (mandatory after every change)
+### The loop (mandatory after every change)
 
 ```bash
-# 1. Generate
-python3 -c "from weasyprint import HTML; HTML('doc.html').write_pdf('out.pdf')"
+# Filled document: every gate, the render, page images, one verdict
+python3 scripts/build.py --deliver doc.html content.json
 
-# 2. Page count
-python3 -c "from pypdf import PdfReader; print(len(PdfReader('out.pdf').pages))"
+# Template work: build one target through render.py
+python3 scripts/build.py one-pager
+```
 
-# 3. Visual inspect (when in doubt)
-pdftoppm -png -r 300 out.pdf inspect
+Both go through `scripts/render.py`, which also renders math, highlights code, and stamps PDF metadata. Call WeasyPrint directly only to isolate a suspected WeasyPrint bug, and never ship that output:
+
+```bash
+# Debug isolation only: raw WeasyPrint, no math, highlighting, or metadata
+python3 -c "from weasyprint import HTML; HTML('doc.html').write_pdf('raw.pdf')"
 ```
 
 **Not verified = not done.**
@@ -587,8 +611,9 @@ Resume templates use section-title bottom rules and borderless project rows. Do 
 ```bash
 # Preferred: multi-source download script (retries, size validation).
 # Lands fonts in ${XDG_DATA_HOME:-~/.local/share}/fonts/kami (fontconfig-scanned,
-# outside the skill dir), then runs fc-cache. Inside a repo checkout it is a
-# no-op because the committed TTFs already satisfy the templates' relative path.
+# outside the skill dir), then runs fc-cache. A repository checkout first copies
+# missing or truncated fonts from root assets/fonts into the skill's ignored assets/fonts;
+# downloads are needed only when usable fonts remain missing.
 bash scripts/ensure-fonts.sh
 
 # Or put .ttf alongside the HTML
@@ -839,7 +864,7 @@ col 3': 66 chars (2 lines)   <- fixed by trimming "general intelligence" -> "AGI
 
 **Root cause**: An `<img src="../../../sibling-project/asset.jpg">` reaches outside the kami repo. The path resolves on the maintainer's laptop where the sibling project happens to be checked out, but breaks for every other user, breaks the packaged skill ZIP, and breaks any CI that doesn't recreate the maintainer's working tree.
 
-**Fix**: Every image referenced by a demo or template must live under `assets/demos/images/` or `assets/illustrations/`. Copy the source into the kami repo, then reference it with a relative path inside the repo.
+**Fix**: Every image referenced by a demo or template must live under the demo's `images/` folder (`site/assets/demos/images/` in this repository) or `site/assets/illustrations/`. Copy the source into the kami repo, then reference it with a relative path inside the repo.
 
 ```html
 <!-- avoid -->
@@ -849,7 +874,7 @@ col 3': 66 chars (2 lines)   <- fixed by trimming "general intelligence" -> "AGI
 <img src="images/kaku-hero.jpg" alt="...">
 ```
 
-Quick check before building any demo: `rg 'src="(\.\./|/Users/|file://)' assets/demos/` should return zero matches.
+Quick check before building any demo: `rg 'src="(\.\./|/Users/|file://)' site/assets/demos/` should return zero matches.
 
 ### 20. (P1) Metric row baseline-align breaks when labels wrap
 
@@ -917,6 +942,91 @@ not generated from `assets/diagrams/*.html`.
 **Done when**: every visual change to a diagram template is also present in the
 matching mini SVG in `index.html`, `index-zh.html`, `index-ja.html`, `index-ko.html`,
 and `index-tw.html`.
+
+### 24. (P0) `target-counter` resolves to 0 on a flex anchor (WeasyPrint 70.0)
+
+**Symptom**: every long-doc TOC page number renders as `0`. WeasyPrint 69.0 and
+earlier print the correct numbers from the same HTML; 70.0 (2026-09-08) does not.
+
+**Root cause**: WeasyPrint 70.0 fails to resolve `target-counter()` in an
+`::after` whose originating `<a>` is itself `display: flex`. The unresolved
+counter still prints a well-formed `0`, so no text-level gate objects.
+
+**Fix**: keep the anchor a block and float the numeral instead of relying on
+flex alignment:
+
+```css
+.toc-title {
+  flex: 1;             /* still a flex ITEM of .toc-item, which is fine */
+  display: block;      /* must not be a flex CONTAINER itself */
+}
+.toc-title[href]::after {
+  content: target-counter(attr(href), page);
+  float: right;        /* not margin-left: auto */
+}
+```
+
+**Done when**: `python3 scripts/build.py --verify long-doc` passes. That target
+cross-checks each rendered numeral against the page its TOC row links to, so a
+`0` fails the build instead of shipping. Same substitution as the resume badge
+fix (`float: right` over `margin-left: auto`): it is stable across versions.
+Match each numeral to its containing row, not every link to the same destination:
+body cross-references are not TOC rows, and repeated destinations still need
+separate checks. CI renders all three long-doc variants even without a page ceiling.
+
+### 25. Korean text is extractable but absent in a PDF preview
+
+**Symptom**: a Source Han Serif K PDF contains Korean text and embeds its font,
+but MuPDF/PyMuPDF and macOS Preview (Quartz) show only Latin text and page
+numbers, while Poppler (`pdftoppm`) draws the Korean.
+
+**Root cause**: WeasyPrint subsets a CID-keyed CFF font (the `.otf` build of
+Source Han Serif K) into a PDF font that MuPDF and Quartz draw blank; see the
+[upstream issue](https://github.com/Kozea/WeasyPrint/issues/1593). The same
+glyphs as TrueType outlines subset cleanly for every reader. `full_fonts=True`
+also renders, but embeds about 7 MB per weight.
+
+**Fix (in the pipeline)**: `render.render_pdf` runs `scripts/font_compat.py`,
+which rewrites every `@font-face` source that resolves to a local CID-keyed CFF
+file (relative path, `file://`, or a CDN URL whose file is in the skill font
+directory or the `ensure-fonts.sh` directory) to a TrueType copy converted once
+with fontTools and cached under `${XDG_CACHE_HOME:-~/.cache}/kami/fonts`. The first
+Korean render takes about 10 seconds per weight; later ones read the cache.
+A font fontconfig resolves by family name never passes through `@font-face` and is
+not converted, so keep the template's `@font-face` path working
+(`bash scripts/ensure-fonts.sh`).
+
+**Verification**: render the page with MuPDF (`build.py --check-visual`) and open
+the PDF in Preview; Poppler alone proves nothing, because it drew the broken file
+too. Text extraction and embedded font names do not establish visible glyphs.
+
+### 26. Korean breaks inside words
+
+**Symptom**: Korean lines end mid-word ("파이프라 / 인을"), although Korean
+breaks between words (eojeol) and the templates' CSS says so.
+
+**Root cause**: WeasyPrint ignores `word-break: keep-all`.
+
+**Fix (in the pipeline)**: `render.render_pdf` runs `scripts/hangul.py`, which puts
+U+2060 WORD JOINER between the characters of each Hangul-bearing word in the copy
+it renders (never in the source), across inline tags such as
+`<span class="hl">18개 팀</span>이`. The joiner draws nothing and does not reach the
+PDF text layer. Words over 16 characters stay breakable so narrow cells wrap
+instead of overflowing. Do not add joiners or per-word spans to the source HTML.
+Word-level breaking fills lines less tightly than syllable breaking, so a Korean
+document near its page ceiling may need a shorter line or two.
+
+### 27. A grid item set to `grid-column: 1 / -1` stays in one column
+
+**Symptom**: an item meant to span a two-column grid in a PDF stays in the first
+column, so whatever sits at its right edge (a star count, a date) stops mid-page.
+
+**Root cause**: WeasyPrint ignores negative grid line numbers; the declaration is
+dropped without a warning. Browsers honor it, so a landing page looks right.
+
+**Fix**: in PDF templates span by count (`grid-column: span 2`) or with positive
+lines (`1 / 3`). The resume templates use `.os-item:only-child { grid-column: span 2; }`
+so a single open-source project spans the row.
 
 ---
 

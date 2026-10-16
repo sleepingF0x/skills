@@ -14,22 +14,26 @@ Thresholds and DPI live in `references/checks_thresholds.json`.
 from __future__ import annotations
 
 import re
-from html import unescape
-from html.parser import HTMLParser
 from pathlib import Path
 
+from html_visibility import visible_html_text
 from optional_deps import MissingDepError, require_pymupdf, require_pypdf_reader
 from shared import (
     PARCHMENT_RGB,
-    ROOT,
     TEMPLATES,
     default_example_pdfs,
     load_checks_thresholds,
     pptx_targets,
     rel_to_root,
+    resolve_input,
 )
 
 PLACEHOLDER = re.compile(r"\{\{[^}]+\}\}")
+# The author meta tag may keep its placeholder: render.py stamps the PDF /Author
+# from git config or KAMI_AUTHOR exactly when it is still unfilled (SKILL.md
+# metadata table), so leaving it is the documented path, not a miss.
+AUTHOR_META_PLACEHOLDER = re.compile(
+    r"""<meta\s+name=["']author["']\s+content=["']\{\{[^}]+\}\}["']\s*/?>""", re.I)
 MARKDOWN_THEMATIC_BREAK = re.compile(r"^\s*[-*_]{3,}\s*$")
 MARKDOWN_RESIDUE_MARKERS = (
     ("markdown thematic break", MARKDOWN_THEMATIC_BREAK),
@@ -52,15 +56,13 @@ def check_placeholders(paths: list[str]) -> int:
 
     failures = 0
     for raw in paths:
-        path = Path(raw)
-        if not path.is_absolute():
-            path = ROOT / path
+        path = resolve_input(raw)
         if not path.exists():
             print(f"ERROR: {raw}: file not found")
             failures += 1
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
-        hits = list(dict.fromkeys(PLACEHOLDER.findall(text)))
+        hits = list(dict.fromkeys(PLACEHOLDER.findall(AUTHOR_META_PLACEHOLDER.sub("", text))))
         rel = rel_to_root(path)
         if hits:
             print(f"ERROR: {rel}: unfilled placeholder(s): {', '.join(hits)}")
@@ -72,852 +74,6 @@ def check_placeholders(paths: list[str]) -> int:
 
 
 # ---------- markdown residue check ----------
-
-def _decode_css_escapes(text: str) -> str:
-    """Decode the CSS escapes needed to recognize property names and values."""
-    def replace_hex(match: re.Match) -> str:
-        try:
-            return chr(int(match.group(1), 16))
-        except (ValueError, OverflowError):
-            return ""
-
-    text = re.sub(r"\\([0-9a-fA-F]{1,6})\s?", replace_hex, text)
-    return re.sub(r"\\([^\r\n])", r"\1", text)
-
-
-def _css_numeric_value(value: str) -> tuple[float, str] | None:
-    """Parse a small, deterministic subset of CSS numeric expressions."""
-    value = re.sub(r"\s+", "", value.lower())
-    direct = re.fullmatch(r"([-+]?(?:\d+(?:\.\d*)?|\.\d+))(%|[a-z]+)?", value)
-    if direct:
-        return float(direct.group(1)), direct.group(2) or ""
-    function = re.fullmatch(r"(calc|min|max|clamp)\((.*)\)", value)
-    if not function:
-        return None
-    name, body = function.groups()
-    if name == "calc":
-        return _css_numeric_value(body)
-    parts = [_css_numeric_value(part) for part in body.split(",")]
-    if not parts or any(part is None for part in parts):
-        return None
-    parsed = [part for part in parts if part is not None]
-    units = {unit for number, unit in parsed if number != 0 and unit}
-    if len(units) > 1:
-        return None
-    unit = next(iter(units), next((u for _, u in parsed if u), ""))
-    values = [number for number, _ in parsed]
-    if name == "min":
-        return min(values), unit
-    if name == "max":
-        return max(values), unit
-    if len(values) == 3:
-        lower, preferred, upper = values
-        return max(lower, min(preferred, upper)), unit
-    return None
-
-
-def _is_zero_css_value(value: str) -> bool:
-    parsed = _css_numeric_value(value)
-    return parsed is not None and parsed[0] == 0
-
-
-def _is_extreme_css_offset(value: str) -> bool:
-    parsed = _css_numeric_value(value)
-    if parsed is None:
-        return False
-    number, unit = parsed
-    threshold = 100 if unit in {"%", "em", "rem"} else 2000
-    return abs(number) >= threshold
-
-
-def _style_state(
-    style: str,
-    *,
-    fail_closed: bool,
-    replaced_element: bool = False,
-) -> tuple[bool, bool]:
-    """Return ``(hidden, ambiguous)`` for a declaration block.
-
-    CSS comments are removed first because browsers accept declarations such
-    as ``display/**/: none``. The coverage gate must not treat those elements
-    as visible merely because the declaration was split by a comment.
-    """
-    clean = re.sub(r"/\*.*?\*/", "", style, flags=re.S)
-    clean = _decode_css_escapes(clean)
-    properties: dict[str, tuple[str, bool]] = {}
-    for declaration in clean.split(";"):
-        name, separator, value = declaration.partition(":")
-        if not separator:
-            continue
-        name = re.sub(r"\s+", "", name.lower())
-        important = re.search(r"!\s*important\s*$", value, flags=re.I) is not None
-        value = re.sub(r"!\s*important\s*$", "", value, flags=re.I)
-        value = re.sub(r"\s+", "", value.lower())
-        previous = properties.get(name)
-        if previous is None or important or not previous[1]:
-            properties[name] = (value, important)
-
-    def resolved(name: str, depth: int = 0) -> tuple[str, bool]:
-        if name not in properties:
-            return "", False
-        if depth > 8:
-            return "", True
-        value = properties[name][0]
-        match = re.fullmatch(r"var\((--[\w-]+)(?:,(.*))?\)", value)
-        if not match:
-            return value, False
-        custom_name, fallback = match.groups()
-        if custom_name in properties:
-            return resolved(custom_name, depth + 1)
-        if fallback is None:
-            return "", True
-        temporary_name = f"--kami-fallback-{depth}"
-        properties[temporary_name] = (fallback, False)
-        try:
-            return resolved(temporary_name, depth + 1)
-        finally:
-            properties.pop(temporary_name, None)
-
-    display, display_ambiguous = resolved("display")
-    visibility, visibility_ambiguous = resolved("visibility")
-    if fail_closed and (
-        (display_ambiguous and "display" in properties)
-        or (visibility_ambiguous and "visibility" in properties)
-    ):
-        return False, True
-    if display == "none" or display.startswith("var("):
-        return True, False
-    if visibility in {"hidden", "collapse"} or visibility.startswith("var("):
-        return True, False
-    opacity, opacity_ambiguous = resolved("opacity")
-    if opacity_ambiguous and "opacity" in properties and fail_closed:
-        return False, True
-    if _is_zero_css_value(opacity):
-        return True, False
-    font_size, font_size_ambiguous = resolved("font-size")
-    if font_size_ambiguous and "font-size" in properties and fail_closed:
-        return False, True
-    if _is_zero_css_value(font_size):
-        return True, False
-    color, color_ambiguous = resolved("color")
-    if color_ambiguous and "color" in properties and fail_closed:
-        return False, True
-    if color == "transparent":
-        return True, False
-    transform, transform_ambiguous = resolved("transform")
-    if transform_ambiguous and "transform" in properties and fail_closed:
-        return False, True
-    if (
-        re.search(r"scale(?:x|y)?\([-+]?(?:0+(?:\.0*)?|\.0+)\)", transform)
-        or re.search(
-            r"scale\([-+]?(?:0+(?:\.0*)?|\.0+),"
-            r"[-+]?(?:0+(?:\.0*)?|\.0+)\)",
-            transform,
-        )
-    ):
-        return True, False
-    matrix = re.search(r"matrix\(([^)]*)\)", transform)
-    if matrix:
-        try:
-            values = [float(value) for value in matrix.group(1).split(",")]
-        except ValueError:
-            values = []
-        if len(values) == 6 and all(value == 0 for value in values[:4]):
-            return True, False
-    if re.search(r"translate(?:x|y)?\([^)]*(?:-[2-9]\d{3,}|-[1-9]\d{4,})", transform):
-        return True, False
-    if fail_closed and "transform" in properties and "var(" in transform:
-        return False, True
-    for property_name in ("scale", "zoom"):
-        value, ambiguous = resolved(property_name)
-        if ambiguous and property_name in properties and fail_closed:
-            return False, True
-        if _is_zero_css_value(value):
-            return True, False
-    content_visibility, content_visibility_ambiguous = resolved("content-visibility")
-    if content_visibility_ambiguous and "content-visibility" in properties and fail_closed:
-        return False, True
-    if content_visibility == "hidden":
-        return True, False
-    filter_value, filter_ambiguous = resolved("filter")
-    if filter_ambiguous and "filter" in properties and fail_closed:
-        return False, True
-    if re.search(r"opacity\((?:0+(?:\.0*)?|\.0+)(?:%)?\)", filter_value):
-        return True, False
-    if fail_closed and "filter" in properties and "url(" in filter_value:
-        return False, True
-    if fail_closed:
-        for property_name in ("mask", "mask-image", "-webkit-mask", "-webkit-mask-image"):
-            value, ambiguous = resolved(property_name)
-            if property_name in properties and (ambiguous or value not in {"", "none"}):
-                return False, True
-    if fail_closed:
-        for property_name in (
-            "top", "right", "bottom", "left", "inset", "inset-inline",
-            "inset-block", "margin-top", "margin-right", "margin-bottom",
-            "margin-left",
-        ):
-            value, ambiguous = resolved(property_name)
-            if property_name not in properties:
-                continue
-            if ambiguous:
-                return False, True
-            if _is_extreme_css_offset(value):
-                return True, False
-    text_indent, text_indent_ambiguous = resolved("text-indent")
-    if text_indent_ambiguous and "text-indent" in properties and fail_closed:
-        return False, True
-    if _is_extreme_css_offset(text_indent):
-        return True, False
-    clip, clip_ambiguous = resolved("clip")
-    clip_path, clip_path_ambiguous = resolved("clip-path")
-    if fail_closed and (
-        (clip_ambiguous and "clip" in properties)
-        or (clip_path_ambiguous and "clip-path" in properties)
-    ):
-        return False, True
-    if clip in {"rect(0,0,0,0)", "rect(0px,0px,0px,0px)"}:
-        return True, False
-    if clip_path in {"inset(50%)", "inset(100%)", "circle(0)", "circle(0px)"}:
-        return True, False
-    if fail_closed and "clip" in properties and clip not in {"", "auto"}:
-        return False, True
-    if fail_closed and "clip-path" in properties and clip_path not in {"", "none"}:
-        return False, True
-    width, width_ambiguous = resolved("width")
-    max_width, max_width_ambiguous = resolved("max-width")
-    height, height_ambiguous = resolved("height")
-    max_height, max_height_ambiguous = resolved("max-height")
-    overflow, overflow_ambiguous = resolved("overflow")
-    if fail_closed and (
-        (width_ambiguous and "width" in properties)
-        or (max_width_ambiguous and "max-width" in properties)
-        or (height_ambiguous and "height" in properties)
-        or (max_height_ambiguous and "max-height" in properties)
-    ):
-        return False, True
-    if overflow_ambiguous and "overflow" in properties and fail_closed:
-        return False, True
-    zero_width = _is_zero_css_value(width) or _is_zero_css_value(max_width)
-    zero_height = _is_zero_css_value(height) or _is_zero_css_value(max_height)
-    if (zero_width or zero_height) and (
-        replaced_element or overflow in {"hidden", "clip"}
-    ):
-        return True, False
-    if fail_closed:
-        for property_name, value, ambiguous in (
-            ("opacity", opacity, opacity_ambiguous),
-            ("font-size", font_size, font_size_ambiguous),
-            ("width", width, width_ambiguous),
-            ("max-width", max_width, max_width_ambiguous),
-            ("height", height, height_ambiguous),
-            ("max-height", max_height, max_height_ambiguous),
-        ):
-            if property_name in properties and (
-                ambiguous or ("(" in value and _css_numeric_value(value) is None)
-            ):
-                return False, True
-    return False, False
-
-
-def _style_hides(
-    style: str,
-    *,
-    fail_closed: bool,
-    replaced_element: bool = False,
-) -> bool:
-    return _style_state(
-        style,
-        fail_closed=fail_closed,
-        replaced_element=replaced_element,
-    )[0]
-
-
-def _css_hidden_filters(
-    raw: str,
-    *,
-    fail_closed: bool,
-) -> tuple[
-    set[str], set[str], set[str], set[tuple[str, str | None]],
-    set[str], set[str], set[str], set[tuple[str, str | None]], bool,
-]:
-    """Return conservative class, id, and tag filters for hidden CSS rules.
-
-    The stdlib parser does not implement the CSS cascade. For compound
-    selectors, it marks the target class/id when available; for a bare target
-    such as ``.concealed img``, it marks the nearest ancestor class/id. This
-    can reject an ambiguous document, but it cannot turn hidden evidence into
-    a coverage pass. Pseudo-elements are ignored because they do not hide the
-    underlying element.
-    """
-    hidden_classes: set[str] = set()
-    hidden_ids: set[str] = set()
-    hidden_tags: set[str] = set()
-    hidden_attrs: set[tuple[str, str | None]] = set()
-    ambiguous_classes: set[str] = set()
-    ambiguous_ids: set[str] = set()
-    ambiguous_tags: set[str] = set()
-    ambiguous_attrs: set[tuple[str, str | None]] = set()
-    globally_ambiguous = False
-    decoded_markup = unescape(raw)
-    if fail_closed and re.search(
-        r"<link\b[^>]*\bstylesheet\b[^>]*>",
-        decoded_markup,
-        flags=re.I,
-    ):
-        ambiguous_tags.add("*")
-        globally_ambiguous = True
-    style_blocks = re.findall(r"<style\b[^>]*>(.*?)</style\s*>", raw, flags=re.I | re.S)
-    for block in style_blocks:
-        clean = re.sub(r"/\*.*?\*/", "", block, flags=re.S)
-        clean = _decode_css_escapes(clean)
-        if fail_closed and re.search(r"@import\b", clean, flags=re.I):
-            ambiguous_tags.add("*")
-            globally_ambiguous = True
-        for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", clean, flags=re.S):
-            hides, body_ambiguous = _style_state(body, fail_closed=fail_closed)
-            if not hides and not body_ambiguous:
-                continue
-            class_store = ambiguous_classes if body_ambiguous else hidden_classes
-            id_store = ambiguous_ids if body_ambiguous else hidden_ids
-            tag_store = ambiguous_tags if body_ambiguous else hidden_tags
-            attr_store = ambiguous_attrs if body_ambiguous else hidden_attrs
-            selectors = _decode_css_escapes(selectors)
-            if (
-                re.search(r":[\w-]+\s*\(", selectors)
-                or re.search(r"[+~]", selectors)
-                or re.search(r"\[[^\]]*(?:[~|^$*]=)", selectors)
-                or re.search(r"\[[^\]]*,[^\]]*\]", selectors)
-            ):
-                if fail_closed:
-                    ambiguous_tags.add("*")
-                    globally_ambiguous = True
-                continue
-            for selector in selectors.split(","):
-                selector = selector.strip()
-                if not selector or "::" in selector:
-                    continue
-                compounds = [
-                    part for part in re.split(r"\s+|[>+~]", selector) if part
-                ]
-                if not compounds:
-                    continue
-                target = compounds[-1]
-                target_classes = set(re.findall(r"\.([\w-]+)", target))
-                target_ids = set(re.findall(r"#([\w-]+)", target))
-                target_attrs = {
-                    (
-                        match.group(1).lower(),
-                        next(
-                            (value for value in match.groups()[1:] if value is not None),
-                            None,
-                        ),
-                    )
-                    for match in re.finditer(
-                        r"\[\s*([\w-]+)(?:\s*=\s*(?:\"([^\"]*)\"|'([^']*)'|([^\]\s]+)))?\s*\]",
-                        target,
-                    )
-                }
-                if ":not(" not in target and (target_classes or target_ids):
-                    class_store.update(target_classes)
-                    id_store.update(target_ids)
-                    continue
-                if target_attrs:
-                    attr_store.update(target_attrs)
-                    continue
-                if target.startswith(":root"):
-                    tag_store.add("html")
-                    continue
-                ancestors = " ".join(compounds[:-1])
-                ancestor_classes = set(re.findall(r"\.([\w-]+)", ancestors))
-                ancestor_ids = set(re.findall(r"#([\w-]+)", ancestors))
-                if ancestor_classes or ancestor_ids:
-                    class_store.update(ancestor_classes)
-                    id_store.update(ancestor_ids)
-                    continue
-                tag_match = re.match(r"(?:\*|[a-zA-Z][\w-]*)", target)
-                if tag_match:
-                    tag_store.add(tag_match.group(0).lower())
-                else:
-                    ambiguous_tags.add("*")
-                    globally_ambiguous = True
-    return (
-        hidden_classes,
-        hidden_ids,
-        hidden_tags,
-        hidden_attrs,
-        ambiguous_classes,
-        ambiguous_ids,
-        ambiguous_tags,
-        ambiguous_attrs,
-        globally_ambiguous,
-    )
-
-
-def css_hidden_selectors(raw: str) -> tuple[set[str], set[str]]:
-    """Return class and id filters hidden by inline stylesheet rules."""
-    hidden_classes, hidden_ids, _, _, _, _, _, _, _ = _css_hidden_filters(
-        raw,
-        fail_closed=False,
-    )
-    return hidden_classes, hidden_ids
-
-
-class _HtmlVisibilityParser(HTMLParser):
-    """Shared fail-closed visibility state for text and resource parsers."""
-
-    _VOID_TAGS = {
-        "area", "base", "br", "col", "embed", "hr", "img", "input",
-        "link", "meta", "param", "source", "track", "wbr",
-    }
-    _P_IMPLICIT_CLOSE_STARTS = {
-        "address", "article", "aside", "blockquote", "details", "div",
-        "dl", "fieldset", "figcaption", "figure", "footer", "form",
-        "h1", "h2", "h3", "h4", "h5", "h6", "header", "hgroup", "hr",
-        "main", "menu", "nav", "ol", "p", "pre", "section", "table", "ul",
-    }
-    _OPTIONAL_REPEAT_TAGS = {
-        "dd", "dt", "li", "option", "tbody", "td", "tfoot", "th", "thead", "tr",
-    }
-    _REPLACED_TAGS = {"audio", "embed", "iframe", "image", "img", "object", "svg", "video"}
-    _PRESENTATION_STYLE_ATTRS = {
-        "clip", "clip-path", "color", "display", "filter", "font-size", "height",
-        "mask", "mask-image", "max-height", "max-width", "opacity", "overflow",
-        "transform", "visibility", "width",
-    }
-    _SVG_POSITIONED_TAGS = {
-        "circle", "ellipse", "foreignobject", "image", "rect", "svg", "text", "tspan", "use",
-    }
-
-    def __init__(
-        self,
-        hidden_classes: set[str],
-        hidden_ids: set[str],
-        hidden_tags: set[str],
-        hidden_attrs: set[tuple[str, str | None]],
-        ambiguous_classes: set[str],
-        ambiguous_ids: set[str],
-        ambiguous_tags: set[str],
-        ambiguous_attrs: set[tuple[str, str | None]],
-        visibility_ambiguous: bool,
-        *,
-        skip_tags: set[str],
-        fail_closed: bool,
-    ) -> None:
-        super().__init__(convert_charrefs=True)
-        self._hidden_classes = hidden_classes
-        self._hidden_ids = hidden_ids
-        self._hidden_tags = hidden_tags
-        self._hidden_attrs = hidden_attrs
-        self._ambiguous_classes = ambiguous_classes
-        self._ambiguous_ids = ambiguous_ids
-        self._ambiguous_tags = ambiguous_tags
-        self._ambiguous_attrs = ambiguous_attrs
-        self._skip_tags = skip_tags
-        self._fail_closed = fail_closed
-        self._visibility_ambiguous = visibility_ambiguous
-        self._skip_depth = 0
-        self._ambiguous_depth = 0
-        self._skip_stack: list[tuple[str, bool, bool]] = []
-        self._svg_viewports: list[tuple[float, float, float, float]] = []
-        self._ambiguous_markup = False
-
-    def _mark_ambiguous(self) -> None:
-        self._ambiguous_markup = True
-        self._skip_stack.clear()
-        self._svg_viewports.clear()
-        self._skip_depth = 1 if self._fail_closed else 0
-        self._ambiguous_depth = 1 if self._fail_closed else 0
-
-    def _pop_top(self) -> None:
-        tag, hidden, ambiguous = self._skip_stack.pop()
-        if tag == "svg" and self._svg_viewports:
-            self._svg_viewports.pop()
-        if hidden:
-            self._skip_depth = max(0, self._skip_depth - 1)
-        if ambiguous:
-            self._ambiguous_depth = max(0, self._ambiguous_depth - 1)
-
-    @staticmethod
-    def _svg_viewport(attrs_map: dict[str, str]) -> tuple[float, float, float, float] | None:
-        raw = attrs_map.get("viewbox", "")
-        if raw:
-            try:
-                values = [float(value) for value in re.split(r"[\s,]+", raw.strip())]
-            except ValueError:
-                values = []
-            if len(values) == 4 and values[2] > 0 and values[3] > 0:
-                return values[0], values[1], values[2], values[3]
-        width = _css_numeric_value(attrs_map.get("width", ""))
-        height = _css_numeric_value(attrs_map.get("height", ""))
-        if width and height and width[0] > 0 and height[0] > 0:
-            return 0.0, 0.0, width[0], height[0]
-        return None
-
-    def _svg_position_state(
-        self,
-        tag: str,
-        attrs_map: dict[str, str],
-    ) -> tuple[bool, bool]:
-        if tag not in self._SVG_POSITIONED_TAGS:
-            return False, False
-        viewport = self._svg_viewports[-1] if self._svg_viewports else None
-        if viewport is not None and tag in {"foreignobject", "text", "tspan"}:
-            # A coordinate point does not prove that the complete glyph or
-            # foreign-object box intersects the viewport. Renderer box data is
-            # required, so SVG text cannot be deterministic atomic evidence.
-            return False, True
-        parsed_positions: dict[str, float] = {}
-        for name in ("x", "y", "dx", "dy"):
-            if name not in attrs_map:
-                continue
-            parsed = _css_numeric_value(attrs_map[name])
-            if parsed is None or parsed[1] not in {"", "px", "pt"}:
-                return False, True
-            parsed_positions[name] = parsed[0]
-        if tag == "svg" and viewport is not None and parsed_positions:
-            # Nested SVG establishes another viewport. Proving its transformed
-            # overlap requires the renderer, so do not accept facts from it as
-            # deterministic static evidence.
-            return False, True
-        if any(parsed_positions.get(name, 0) != 0 for name in ("dx", "dy")):
-            return False, True
-        if viewport is None:
-            if any(abs(value) >= 10000 for value in parsed_positions.values()):
-                return True, False
-            return False, False
-        min_x, min_y, view_width, view_height = viewport
-        x = parsed_positions.get("x", min_x)
-        y = parsed_positions.get("y", min_y)
-        max_x = min_x + view_width
-        max_y = min_y + view_height
-        if tag == "image":
-            image_width = _css_numeric_value(attrs_map.get("width", ""))
-            image_height = _css_numeric_value(attrs_map.get("height", ""))
-            if (
-                image_width is None
-                or image_height is None
-                or image_width[1] not in {"", "px", "pt"}
-                or image_height[1] not in {"", "px", "pt"}
-                or image_width[0] <= 0
-                or image_height[0] <= 0
-            ):
-                return False, True
-            right = x + image_width[0]
-            bottom = y + image_height[0]
-            if right <= min_x or x >= max_x or bottom <= min_y or y >= max_y:
-                return True, False
-            if x < min_x or right > max_x or y < min_y or bottom > max_y:
-                return False, True
-        elif x < min_x or x > max_x or y < min_y or y > max_y:
-            return False, True
-        return False, False
-
-    @staticmethod
-    def _implicitly_closed_by_start(open_tag: str, new_tag: str) -> bool:
-        if open_tag == "p" and new_tag in _HtmlVisibilityParser._P_IMPLICIT_CLOSE_STARTS:
-            return True
-        if open_tag == "li" and new_tag == "li":
-            return True
-        if open_tag in {"dd", "dt"} and new_tag in {"dd", "dt"}:
-            return True
-        if open_tag in {"rp", "rt"} and new_tag in {"rp", "rt"}:
-            return True
-        if open_tag == "option" and new_tag in {"option", "optgroup"}:
-            return True
-        if open_tag == "optgroup" and new_tag == "optgroup":
-            return True
-        if open_tag in {"td", "th"} and new_tag in {
-            "td", "th", "tr", "tbody", "thead", "tfoot",
-        }:
-            return True
-        if open_tag == "tr" and new_tag in {"tr", "tbody", "thead", "tfoot"}:
-            return True
-        if open_tag in {"tbody", "thead", "tfoot"} and new_tag in {
-            "tbody", "thead", "tfoot",
-        }:
-            return True
-        return False
-
-    @staticmethod
-    def _implicitly_closed_by_end(open_tag: str, end_tag: str) -> bool:
-        return (
-            (open_tag == "p" and end_tag in {"address", "article", "aside", "blockquote", "body", "div", "footer", "form", "header", "main", "nav", "section"})
-            or (open_tag == "li" and end_tag in {"menu", "ol", "ul"})
-            or (open_tag in {"dd", "dt"} and end_tag == "dl")
-            or (open_tag in {"rp", "rt"} and end_tag == "ruby")
-            or (open_tag == "option" and end_tag in {"optgroup", "select"})
-            or (open_tag == "optgroup" and end_tag == "select")
-            or (open_tag in {"td", "th"} and end_tag in {"tr", "tbody", "thead", "tfoot", "table"})
-            or (open_tag == "tr" and end_tag in {"tbody", "thead", "tfoot", "table"})
-            or (open_tag in {"tbody", "thead", "tfoot"} and end_tag == "table")
-        )
-
-    @staticmethod
-    def _implicit_start_boundaries(new_tag: str) -> set[str]:
-        if new_tag == "li":
-            return {"menu", "ol", "ul"}
-        if new_tag in {"dd", "dt"}:
-            return {"dl"}
-        if new_tag in {"option", "optgroup"}:
-            return {"datalist", "select"}
-        if new_tag in {"rp", "rt"}:
-            return {"ruby"}
-        if new_tag in {"td", "th"}:
-            return {"table", "tr"}
-        if new_tag in {"tr", "tbody", "thead", "tfoot"}:
-            return {"table"}
-        return set()
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        tag = tag.lower()
-        if self._ambiguous_markup:
-            return
-        boundaries = self._implicit_start_boundaries(tag)
-        boundary = max(
-            (
-                index
-                for index, (open_tag, _, _) in enumerate(self._skip_stack)
-                if open_tag in boundaries
-            ),
-            default=-1,
-        )
-        implicit_match = next(
-            (
-                index
-                for index in range(len(self._skip_stack) - 1, boundary, -1)
-                if self._implicitly_closed_by_start(self._skip_stack[index][0], tag)
-            ),
-            None,
-        )
-        if implicit_match is not None:
-            while len(self._skip_stack) > implicit_match:
-                self._pop_top()
-        attrs_map = {name.lower(): (value or "") for name, value in attrs}
-        classes = set(attrs_map.get("class", "").split())
-        presentation_style = ";".join(
-            f"{name}:{value}"
-            for name, value in attrs_map.items()
-            if name in self._PRESENTATION_STYLE_ATTRS
-        )
-        inline_hidden, inline_ambiguous = _style_state(
-            attrs_map.get("style", ""),
-            fail_closed=self._fail_closed,
-            replaced_element=tag in self._REPLACED_TAGS,
-        )
-        presentation_hidden, presentation_ambiguous = _style_state(
-            presentation_style,
-            fail_closed=self._fail_closed,
-            replaced_element=tag in self._REPLACED_TAGS,
-        )
-        svg_position_hidden, svg_position_ambiguous = self._svg_position_state(
-            tag,
-            attrs_map,
-        )
-        known_hidden = (
-            tag in self._skip_tags
-            or tag in self._hidden_tags
-            or "*" in self._hidden_tags
-            or any(
-                name in attrs_map
-                and (expected is None or attrs_map[name] == expected)
-                for name, expected in self._hidden_attrs
-            )
-            or "hidden" in attrs_map
-            or attrs_map.get("aria-hidden", "").lower() == "true"
-            or bool(classes & self._hidden_classes)
-            or attrs_map.get("id", "") in self._hidden_ids
-            or inline_hidden
-            or (self._fail_closed and presentation_hidden)
-            or (self._fail_closed and svg_position_hidden)
-            or (
-                self._fail_closed
-                and attrs_map.get("fill", "").strip().lower() == "none"
-            )
-            or (
-                self._fail_closed
-                and _is_zero_css_value(attrs_map.get("fill-opacity", ""))
-            )
-        )
-        css_ambiguous = (
-            tag in self._ambiguous_tags
-            or "*" in self._ambiguous_tags
-            or any(
-                name in attrs_map
-                and (expected is None or attrs_map[name] == expected)
-                for name, expected in self._ambiguous_attrs
-            )
-            or bool(classes & self._ambiguous_classes)
-            or attrs_map.get("id", "") in self._ambiguous_ids
-        )
-        if known_hidden or (self._skip_depth and not self._ambiguous_depth):
-            inline_ambiguous = False
-            presentation_ambiguous = False
-            svg_position_ambiguous = False
-            css_ambiguous = False
-        current_ambiguous = self._fail_closed and (
-            css_ambiguous
-            or inline_ambiguous
-            or presentation_ambiguous
-            or svg_position_ambiguous
-        )
-        ambiguous_hidden = (
-            current_ambiguous and not known_hidden and self._skip_depth == 0
-        )
-        if not known_hidden and (self._ambiguous_depth or ambiguous_hidden):
-            self._handle_ambiguous_starttag(tag, attrs)
-        hidden = known_hidden or current_ambiguous
-        is_void = tag in self._VOID_TAGS
-        if not is_void:
-            self._skip_stack.append((tag, hidden, ambiguous_hidden))
-            if tag == "svg":
-                self._svg_viewports.append(
-                    self._svg_viewport(attrs_map) or (0.0, 0.0, 4096.0, 4096.0)
-                )
-            if hidden:
-                self._skip_depth += 1
-            if ambiguous_hidden:
-                self._ambiguous_depth += 1
-        if hidden or self._skip_depth:
-            return
-        self._handle_visible_starttag(tag, attrs)
-
-    def handle_endtag(self, tag: str) -> None:
-        tag = tag.lower()
-        if self._ambiguous_markup:
-            return
-        if tag in self._VOID_TAGS:
-            return
-        match = next(
-            (index for index in range(len(self._skip_stack) - 1, -1, -1)
-             if self._skip_stack[index][0] == tag),
-            None,
-        )
-        if match is None:
-            return
-        if match != len(self._skip_stack) - 1:
-            intervening = self._skip_stack[match + 1:]
-            if not intervening or not self._implicitly_closed_by_end(
-                intervening[0][0],
-                tag,
-            ):
-                self._mark_ambiguous()
-                return
-        closing = self._skip_stack[match:]
-        del self._skip_stack[match:]
-        for open_tag, _, _ in reversed(closing):
-            if open_tag == "svg" and self._svg_viewports:
-                self._svg_viewports.pop()
-        self._skip_depth = max(
-            0,
-            self._skip_depth - sum(1 for _, hidden, _ in closing if hidden),
-        )
-        self._ambiguous_depth = max(
-            0,
-            self._ambiguous_depth
-            - sum(1 for _, _, ambiguous in closing if ambiguous),
-        )
-
-    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        # In HTML, a trailing slash is ignored on non-void elements. Treating
-        # <div hidden/> as closed would expose everything that follows even
-        # though browsers and WeasyPrint keep it inside the hidden div.
-        foreign_svg = tag.lower() == "svg" or bool(self._svg_viewports)
-        self.handle_starttag(tag, attrs)
-        if foreign_svg and tag.lower() not in self._VOID_TAGS:
-            self.handle_endtag(tag)
-
-    def handle_data(self, data: str) -> None:
-        if self._ambiguous_markup:
-            if not self._fail_closed:
-                self._handle_visible_data(data)
-        elif self._ambiguous_depth:
-            self._handle_ambiguous_data(data)
-        elif self._skip_depth == 0:
-            self._handle_visible_data(data)
-
-    def _handle_visible_starttag(
-        self, _tag: str, _attrs: list[tuple[str, str | None]],
-    ) -> None:
-        return
-
-    def _handle_ambiguous_starttag(
-        self,
-        _tag: str,
-        _attrs: list[tuple[str, str | None]],
-    ) -> None:
-        return
-
-    def _handle_ambiguous_data(self, _data: str) -> None:
-        return
-
-    def _handle_visible_data(self, _data: str) -> None:
-        return
-
-
-class _VisibleTextParser(_HtmlVisibilityParser):
-    """Extract visible text from filled HTML while skipping code-like blocks."""
-
-    _SKIP_TAGS = {
-        "clippath", "code", "datalist", "defs", "desc", "head", "mask",
-        "metadata", "noembed", "noframes", "noscript", "pattern", "pre", "rp",
-        "script", "style", "symbol", "template", "title",
-    }
-    def __init__(
-        self,
-        hidden_classes: set[str],
-        hidden_ids: set[str],
-        hidden_tags: set[str],
-        hidden_attrs: set[tuple[str, str | None]],
-        ambiguous_classes: set[str],
-        ambiguous_ids: set[str],
-        ambiguous_tags: set[str],
-        ambiguous_attrs: set[tuple[str, str | None]],
-        visibility_ambiguous: bool,
-        *,
-        fail_closed: bool,
-    ) -> None:
-        super().__init__(
-            hidden_classes,
-            hidden_ids,
-            hidden_tags,
-            hidden_attrs,
-            ambiguous_classes,
-            ambiguous_ids,
-            ambiguous_tags,
-            ambiguous_attrs,
-            visibility_ambiguous,
-            skip_tags=self._SKIP_TAGS,
-            fail_closed=fail_closed,
-        )
-        self.parts: list[str] = []
-
-    def _handle_visible_data(self, data: str) -> None:
-        self.parts.append(data)
-
-    def _handle_ambiguous_data(self, data: str) -> None:
-        if data.strip():
-            self._visibility_ambiguous = True
-
-
-def visible_html_evidence(
-    raw: str,
-    *,
-    fail_closed: bool = False,
-) -> tuple[str, bool]:
-    parser = _VisibleTextParser(
-        *_css_hidden_filters(raw, fail_closed=fail_closed),
-        fail_closed=fail_closed,
-    )
-    parser.feed(raw)
-    if fail_closed and parser._ambiguous_markup:
-        return "", True
-    return "\n".join(parser.parts), parser._visibility_ambiguous
-
-
-def visible_html_text(raw: str, *, fail_closed: bool = False) -> str:
-    return visible_html_evidence(raw, fail_closed=fail_closed)[0]
-
 
 def _markdown_residue_issues(text: str, *, page: int | None = None) -> list[str]:
     issues: list[str] = []
@@ -941,14 +97,32 @@ def _markdown_text_chunks(path: Path) -> tuple[list[tuple[int | None, str]], str
             reader = PdfReader(str(path))
         except Exception as exc:
             return [], f"could not read PDF text: {exc}"
+        if not reader.pages:
+            return [], "PDF has no pages"
+
+        def page_text(page) -> str:
+            parts: list[str] = []
+
+            def visit_text(text, _cm, _tm, font_dict, _font_size) -> None:
+                base_font = str((font_dict or {}).get("/BaseFont", "")).casefold()
+                if any(
+                    marker in base_font
+                    for marker in ("mono", "courier", "consolas", "menlo")
+                ):
+                    return
+                parts.append(text)
+
+            page.extract_text(visitor_text=visit_text)
+            return "".join(parts)
+
         return [
-            (index, page.extract_text() or "")
+            (index, page_text(page))
             for index, page in enumerate(reader.pages, start=1)
         ], None
 
     raw = path.read_text(encoding="utf-8", errors="replace")
     if suffix in {".html", ".htm"}:
-        return [(None, visible_html_text(raw))], None
+        return [(None, visible_html_text(raw, residue_mode=True))], None
     return [(None, raw)], None
 
 
@@ -967,9 +141,7 @@ def check_markdown_residue(paths: list[str]) -> int:
     failures = 0
     scanned = 0
     for raw in paths:
-        path = Path(raw)
-        if not path.is_absolute():
-            path = ROOT / path
+        path = resolve_input(raw)
         rel = rel_to_root(path)
         if not path.exists():
             print(f"ERROR: {raw}: file not found")
@@ -1040,7 +212,7 @@ def check_orphans(paths: list[str]) -> int:
     missing = 0
     scanned = 0
     for raw in paths:
-        path = Path(raw)
+        path = resolve_input(raw)
         if not path.exists():
             print(f"ERROR: {raw}: not found")
             missing += 1
@@ -1049,6 +221,11 @@ def check_orphans(paths: list[str]) -> int:
             doc = fitz.open(str(path))
         except Exception as exc:
             print(f"ERROR: {raw}: could not read PDF: {exc}")
+            missing += 1
+            continue
+        if len(doc) == 0:
+            print(f"ERROR: {raw}: PDF has no pages")
+            doc.close()
             missing += 1
             continue
         scanned += 1
@@ -1140,6 +317,8 @@ def scan_density(paths: list[str], scan_single_page: bool = False) -> tuple[int,
     references/checks_thresholds.json. Public: verify.py runs the same scan
     as its advisory pass.
 
+    The last page of a multi-page PDF is judged only against `last_page_pct`.
+
     Page 1 is skipped as a cover exemption, which left a one-page document with
     no scanned page at all: the single-page templates (one-pager, letter) were
     silently exempt from the only layout gate that reads a rendered page. When
@@ -1157,6 +336,10 @@ def scan_density(paths: list[str], scan_single_page: bool = False) -> tuple[int,
     density_cfg = load_checks_thresholds()["density"]
     warn_pct = float(density_cfg["warn_pct"])
     sparse_pct = float(density_cfg["sparse_pct"])
+    # The last page of a multi-page document may close short (writing.md «Page
+    # density»: the last body page runs 40-60% full), so it is
+    # only reported once it passes this looser ceiling.
+    last_page_pct = float(density_cfg.get("last_page_pct", 0.60))
     dpi = int(density_cfg["dpi"])
 
     sparse = 0
@@ -1164,7 +347,7 @@ def scan_density(paths: list[str], scan_single_page: bool = False) -> tuple[int,
     missing = 0
     scanned = 0
     for raw in paths:
-        path = Path(raw)
+        path = resolve_input(raw)
         if not path.exists():
             print(f"ERROR: {raw}: not found")
             missing += 1
@@ -1173,6 +356,11 @@ def scan_density(paths: list[str], scan_single_page: bool = False) -> tuple[int,
             doc = fitz.open(str(path))
         except Exception as exc:
             print(f"ERROR: {raw}: could not read PDF: {exc}")
+            missing += 1
+            continue
+        if len(doc) == 0:
+            print(f"ERROR: {raw}: PDF has no pages")
+            doc.close()
             missing += 1
             continue
         scanned += 1
@@ -1189,7 +377,10 @@ def scan_density(paths: list[str], scan_single_page: bool = False) -> tuple[int,
             last_content_y = _last_content_y(pix.samples, w, h, pix.stride, pix.n)
 
             empty = (h - last_content_y) / h
-            bucket = _density_bucket(empty, warn_pct, sparse_pct)
+            if not single_page and page_num == len(doc) - 1:
+                bucket = "SPARSE" if empty > last_page_pct else "OK"
+            else:
+                bucket = _density_bucket(empty, warn_pct, sparse_pct)
             if bucket == "SPARSE":
                 print(f"  SPARSE: {rel} p{page_num + 1}: {empty:.0%} trailing whitespace")
                 sparse += 1
@@ -1259,6 +450,30 @@ def _resume_balance_issues(
     return issues
 
 
+def resume_thin_source(path: Path) -> str | None:
+    """Explain a balance shortfall no layout can close, else None.
+
+    Two pages that each stay under the ceiling but together hold less than two
+    floors' worth of ink are short of material, not badly laid out: moving a
+    break or loosening type only trades one sparse page for another. The
+    delivery gate reports that as a data gap instead of a layout error.
+    """
+    cfg = load_checks_thresholds()["resume_balance"]
+    min_fill, max_fill = float(cfg["min_fill_pct"]), float(cfg["max_fill_pct"])
+    result = _resume_page_fills(path, int(cfg["dpi"]))
+    if result is None:
+        return None
+    fills, page_count = result
+    if page_count != 2 or len(fills) < 2 or any(f > max_fill for f in fills[:2]):
+        return None
+    total = fills[0] + fills[1]
+    if total >= 2 * min_fill:
+        return None
+    return (f"{fills[0]:.0%} / {fills[1]:.0%}, {total:.0%} in total against the "
+            f"{2 * min_fill:.0%} two balanced pages need: the source is too thin, so list the "
+            "missing material as [DATA NEEDED] gaps (resume-writing.md «Thin source»)")
+
+
 def _resume_page_fills(path: Path, dpi: int) -> tuple[list[float], int] | None:
     try:
         fitz = require_pymupdf()
@@ -1309,7 +524,7 @@ def check_resume_balance(paths: list[str]) -> int:
     missing = 0
     scanned = 0
     for raw in paths:
-        path = Path(raw)
+        path = resolve_input(raw)
         if not path.exists():
             print(f"ERROR: {raw}: not found")
             missing += 1

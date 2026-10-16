@@ -28,11 +28,17 @@ Each project row uses a fixed three-part structure. The word and character targe
 
 - Role: what the project was, why it existed, and your position in it. No verbs yet.
 - Actions: the decisions and techniques you applied. One concrete approach per sentence.
-- Impact: quantified outcomes only. If no number exists, write the magnitude or scope (team size, user count, traffic tier).
+- Impact: state the observable outcome. Include verified numbers when available; otherwise use concrete qualitative evidence. Team size or traffic describes scope, not a substitute result.
 
 **Self-check**: read Impact aloud. If it sounds like a process description ("improved the pipeline") rather than a result ("reduced p95 latency from 800ms to 120ms"), rewrite.
 
 ---
+
+## Recruiter pass (before building)
+
+Mechanical checks validate structure and layout, not prose; a resume can pass every one of them and still read broken. After filling and before building, reread every project card the way a recruiter would, against the three-part rows above: Role carries your position in the project, not background alone; Actions are verb-led, one concrete approach per sentence; Impact reads as an outcome, not a restatement of the process. Across rows, no row repeats another row's information.
+
+Fix a failing row by rewriting from the source material. If the source cannot support a row (no outcome fact exists), ask the user for the missing fact; never pad, and never fall back to generic claims ("保障稳定运行", "improved efficiency"). The pass is silent: surface it only when a row cannot be fixed without new information.
 
 ## Source and truth pass
 
@@ -100,7 +106,7 @@ Each project card has a `.metrics` row that shows key numbers. Two layout modes 
 
 Use | Avoid
 ---|---
-Horizontal for two short metrics: `38% reduce latency · 12k daily users` | Horizontal for long labels: `reduced p95 latency from 820ms to 110ms · 12k active users`
+Horizontal for two short metrics: `38% lower latency · 12k daily users` | Horizontal for long labels: `reduced p95 latency from 820ms to 110ms · 12k active users`
 Vertical when three or more metrics exist | Vertical for exactly two short metrics (wastes space)
 
 To switch to vertical:
@@ -209,6 +215,15 @@ If page 2 is too empty, fix content before touching typography:
 3. Cut filler and repeated metrics before shrinking fonts.
 
 Do not fill space by padding, duplicating a number, or splitting one sentence into two lines. A sparse second page is acceptable only when the source material is genuinely thin and the user prefers restraint over padding.
+
+### Thin source
+
+Measure before tuning. Add the two page fills `--check-resume-balance` prints after the first build: below about 166% (both pages at the 83% floor), the source does not hold two pages, and no break placement or density row closes the gap. Three employers with eight bullets and one open-source line render to 120-135% at default type.
+
+- Keep `.page-break` on the template's first page-2 section only. Never open a continuation section (`工作经历（续）`, `Experience (cont.)`) with `class="page-break"`: the break cuts page 1 wherever the last project ends and turns one shortfall into two half-empty pages, measured at 56-69% and 63-65%.
+- Keep two pages. Collapsing to one page breaks the contract instead of the balance gate.
+- Stop at the 3-project row of «Density tuning by project count». Raising body type, line-height, or section spacing past it reaches the floor with whitespace, and the gate passes a page that still reads empty, because it only reads where the last ink sits.
+- Remove page-2 sections the source has nothing for (AI judgment, public impact) rather than inventing content for them, list the missing material as `[DATA NEEDED]` gaps, and say in the handoff which facts would close the shortfall. `--deliver` recognizes this case (two pages under the ceiling, less than 166% of ink in total) and reports the balance as a WARN with the totals instead of an ERROR; any other imbalance is still a layout error to fix.
 
 ---
 

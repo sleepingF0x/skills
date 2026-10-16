@@ -11,16 +11,19 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import unicodedata
+from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import unquote
 
-from checks import scan_density
+from checks import _resume_balance_issues, scan_density
 from lint import scan_file
+from math_render import MathRenderError
 from optional_deps import MissingDepError, require_pymupdf, require_pypdf_reader
 from render import build_slides, render_pdf
 from shared import (
     DIAGRAMS,
     EXAMPLES,
-    ROOT,
     TEMPLATES,
     build_targets,
     default_example_pdfs,
@@ -28,6 +31,7 @@ from shared import (
     load_checks_thresholds,
     pptx_targets,
     rel_to_root,
+    resolve_input,
     screen_targets,
 )
 
@@ -58,6 +62,9 @@ CJK_SERIF_MARKERS = (
     "HiraginoMincho",
     "HiraMinPro",
     "YuMincho",
+    "Myeongjo",
+    "Myungjo",
+    "Batang",
 )
 # A CJK run needs at least this many ideographs before its dominant font is
 # worth judging: a stray glyph in an otherwise Latin document proves nothing.
@@ -150,6 +157,10 @@ def _classify_cjk_font(font_name: str) -> str:
     return "other"
 
 
+class EmptyPdfError(ValueError):
+    pass
+
+
 def _cjk_font_usage(pdf_path: Path) -> dict[str, int]:
     """Return {font name: ideographs it drew} across the whole document.
 
@@ -161,6 +172,8 @@ def _cjk_font_usage(pdf_path: Path) -> dict[str, int]:
     fitz = require_pymupdf()
     per_font: dict[str, int] = {}
     with fitz.open(str(pdf_path)) as doc:
+        if doc.page_count == 0:
+            raise EmptyPdfError("PDF has no pages")
         for page in doc:
             for block in page.get_text("dict").get("blocks", []):
                 for line in block.get("lines", []):
@@ -239,10 +252,9 @@ def check_fonts(paths: list[str]) -> int:
         return 2
 
     failures = 0
+    empty = 0
     for raw in files:
-        pdf = Path(raw)
-        if not pdf.is_absolute():
-            pdf = ROOT / pdf
+        pdf = resolve_input(raw)
         rel = rel_to_root(pdf)
         if not pdf.exists():
             print(f"ERROR: {raw}: file not found")
@@ -253,6 +265,11 @@ def check_fonts(paths: list[str]) -> int:
         except MissingDepError as exc:
             print(f"ERROR: {exc}")
             return 2
+        except EmptyPdfError:
+            # Same verdict as the other PDF gates: nothing was checked.
+            print(f"ERROR: {raw}: PDF has no pages")
+            empty += 1
+            continue
         except Exception as exc:
             print(f"ERROR: {rel}: could not read text spans: {exc}")
             failures += 1
@@ -303,6 +320,8 @@ def check_fonts(paths: list[str]) -> int:
             print(FONT_RECOVERY_HINT)
             failures += 1
 
+    if empty:
+        return 2
     return 0 if failures == 0 else 1
 
 
@@ -319,6 +338,105 @@ def _check_font_sources(html_path: Path) -> list[str]:
     return missing
 
 
+TOC_TARGET_COUNTER = "target-counter(attr(href), page)"
+
+
+class _TocTitles(HTMLParser):
+    """Read the long-doc template's actual TOC entries, including inline markup."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.rows: list[tuple[str, str]] = []
+        self.target: str | None = None
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag, attributes):
+        attrs = dict(attributes)
+        if tag == "a" and "toc-title" in (attrs.get("class") or "").split():
+            href = attrs.get("href") or ""
+            if href.startswith("#"):
+                self.target = unquote(href[1:])
+                self.parts = []
+
+    def handle_data(self, data):
+        if self.target is not None:
+            self.parts.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self.target is not None:
+            self.rows.append((self.target, "".join(self.parts)))
+            self.target = None
+
+
+def _toc_page_number_issues(pdf_path: Path, source_html: str) -> list[str]:
+    """Cross-check every rendered TOC page number against the page its row links to.
+
+    WeasyPrint resolves `target-counter` at render time, so a failed resolution
+    still prints a well-formed numeral and every text-level gate accepts it.
+    WeasyPrint 70.0 does exactly that when the TOC anchor is a flex container:
+    each row renders `0`. Comparing the glyph against the link destination
+    catches both that failure and ordinary page-number drift.
+    """
+    try:
+        fitz = require_pymupdf()
+    except MissingDepError as exc:
+        print(f"  WARN: TOC page-number check skipped: {exc}")
+        return []
+
+    parser = _TocTitles()
+    parser.feed(source_html)
+    parser.close()
+    if not parser.rows:
+        return []
+
+    def normalized(text):
+        # An unused discretionary hyphen is present in HTML but absent in PDF text.
+        return "".join(unicodedata.normalize("NFKC", text).replace("\u00ad", "").split())
+
+    candidates: list[tuple[str, str, str, int]] = []
+    with fitz.open(str(pdf_path)) as doc:
+        for page in doc:
+            destinations: dict[str, list] = {}
+            for link in page.get_links():
+                dest = link.get("nameddest")
+                if dest:
+                    destinations.setdefault(dest, []).append(link)
+            for dest, links in sorted(destinations.items()):
+                for numeral in links:
+                    rect = numeral["from"]
+                    # A block TOC anchor emits a row-sized link and a contained
+                    # right-floated numeral. Styled inline links can also nest,
+                    # so geometry alone is not enough: match authored titles below.
+                    containers = [
+                        outer for outer in links
+                        if outer["from"].width > rect.width
+                        and rect in outer["from"]
+                        and abs(outer["from"].x1 - rect.x1) < 0.01
+                    ]
+                    if not containers:
+                        continue
+                    outer = min(containers, key=lambda link: link["from"].get_area())
+                    candidates.append((
+                        dest, normalized(page.get_textbox(outer["from"])),
+                        normalized(page.get_textbox(rect)), numeral["page"] + 1,
+                    ))
+
+    issues: list[str] = []
+    for dest, title in parser.rows:
+        title = normalized(title)
+        match = next((i for i, (target, row, number, _) in enumerate(candidates)
+                      if target == dest and row in (number + title, title + number)), None)
+        if match is None:
+            issues.append(f"TOC row '{dest}' has no rendered page-number link")
+            continue
+        _, _, number, expected = candidates.pop(match)
+        if not number.isdecimal():
+            issues.append(f"TOC row '{dest}' renders no page number (links to page {expected})")
+        elif int(number) != expected:
+            issues.append(f"TOC row '{dest}' renders page {number} but links to page {expected}")
+    return issues
+
+
 def verify_target(name: str, source: str, max_pages: int, src_dir: Path) -> list[str]:
     """Render `source` to a PDF, then run page-count and font checks."""
     issues: list[str] = []
@@ -332,24 +450,43 @@ def verify_target(name: str, source: str, max_pages: int, src_dir: Path) -> list
     if missing_fonts:
         for mf in missing_fonts:
             print(f"  [FONT MISS] {name}: {mf} not found")
-        print(f"  [FONT MISS] Repo fix: git checkout -- assets/fonts (commercial TTFs are tracked)")
+        print(f"  [FONT MISS] Repo checkout fix: bash scripts/ensure-fonts.sh (copies the tracked fonts from the repository root into assets/fonts)")
         print(f"  [FONT MISS] Skill recovery (downloads to the user font dir, not the skill): bash scripts/ensure-fonts.sh")
         print(f"  [FONT MISS] Fallback: brew install --cask font-source-han-serif-sc")
 
     out = EXAMPLES / f"{name}.pdf"
     try:
         n = render_pdf(src, out)
-    except MissingDepError as exc:
+    except (MissingDepError, MathRenderError) as exc:
         issues.append(str(exc))
         return issues
+    except Exception as exc:  # WeasyPrint / pypdf / OS errors: report, keep the sweep going
+        issues.append(f"render failed: {exc}")
+        return issues
 
-    # page count check
-    if max_pages and n > max_pages:
-        over = n - max_pages
+    # Resume templates share the balance gate's exact two-page contract. Keep
+    # fill and gap checks in the filled-document flow: source templates contain
+    # placeholder copy, so their rendered density is not an authoring signal.
+    if "resume" in name:
+        cfg = load_checks_thresholds()["resume_balance"]
+        page_issues = _resume_balance_issues(
+            [],
+            n,
+            float(cfg["min_fill_pct"]),
+            float(cfg["max_fill_pct"]),
+            float(cfg["max_gap_pct"]),
+        )
         hint = ""
-        if "resume" in name and over == 1:
+        if n == 3:
             hint = '; add class="resume--dense" to <body> or tighten .proj-text line-height to 1.38'
-        issues.append(f"page overflow: {n} pages (limit {max_pages}){hint}")
+        issues.extend(f"page count: {issue}{hint}" for issue in page_issues)
+    elif max_pages and n > max_pages:
+        issues.append(f"page overflow: {n} pages (limit {max_pages})")
+
+    # Rendered TOC page numbers (long-doc family)
+    source_html = src.read_text(encoding="utf-8")
+    if TOC_TARGET_COUNTER in source_html:
+        issues.extend(_toc_page_number_issues(out, source_html))
 
     # font check
     embedded = _pdf_font_names(out)
@@ -470,6 +607,6 @@ def verify_all(target: str | None) -> int:
                         print(f"  {sparse} SPARSE page(s) (>{sparse_pct_disp}% trailing whitespace) across {scanned} PDF(s)")
                     if warn:
                         print(f"  {warn} WARN page(s) (>{warn_pct_disp}%) across {scanned} PDF(s)")
-                    print("  (advisory: re-author with SKILL.md Step 4.1 merge rule. Does not fail --verify.)")
+                    print("  (advisory: re-author with the writing.md «Page density» merge rule. Does not fail --verify.)")
 
     return 0 if failures == 0 else 1

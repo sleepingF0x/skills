@@ -2,9 +2,11 @@
 
 我在用的 agent skill，全量同步，方便多台机器保持一致。仓库根即 `~/.agents`，skill 都在 `skills/` 下。
 
-`~/.claude/skills` 和 `~/.codex/skills` 里的条目是指向这里的 symlink，所以 Claude Code 和 Codex 共用同一份实体文件。
+`~/.claude/skills`、`~/.codex/skills` 和 `~/.pi/agent/skills` 里的条目是指向这里的 symlink，所以 Claude Code、Codex 和 Pi 共用同一份实体文件。
 
 配套的工作流写在这里：[把 AI 编程从对话变成流程](https://foxden.vault2049.xyz/tech/agent-workflow/)。
+
+较大更新及更新后的具体用法见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 自建
 
@@ -18,21 +20,26 @@
 
 ## 第三方
 
-下面 38 个不是我的作品，原样收录只是为了多机同步。版权归各自作者，随各自的许可证分发。要用请去上游仓库，那里才有更新。有上游的一律跟上游走：上游改了就同步，上游删了经确认再删。
+下面 59 个不是我的作品，原样收录只是为了多机同步。版权归各自作者，随各自的许可证分发。要用请去上游仓库，那里才有更新。有上游的一律跟上游走：上游改了就同步，已确认删除或弃用的技能移除旧入口，改名则迁移到新入口。
 
 | 来源 | skill |
 |---|---|
-| [mattpocock/skills](https://github.com/mattpocock/skills)（25） | `ask-matt` `code-review` `codebase-design` `diagnosing-bugs` `domain-modeling` `grill-me` `grill-with-docs` `grilling` `handoff` `implement` `improve-codebase-architecture` `prototype` `research` `resolving-merge-conflicts` `setup-matt-pocock-skills` `tdd` `teach` `to-questionnaire` `to-spec` `to-tickets` `triage` `wait-what` `wayfinder` `wizard` `writing-for-agents` |
+| [mattpocock/skills](https://github.com/mattpocock/skills)（27） | `ask-matt` `code-review` `codebase-design` `diagnosing-bugs` `domain-modeling` `grill-me` `grill-with-docs` `grilling` `handoff` `implement` `implement-spec` `improve-codebase-architecture` `pr` `prototype` `research` `retro` `setup-matt-pocock-skills` `tdd` `teach` `to-questionnaire` `to-spec` `to-tickets` `triage` `wait-what` `wayfinder` `wizard` `writing-for-agents` |
 | [tw93/Waza](https://github.com/tw93/Waza)（8） | `check` `health` `hunt` `learn` `read` `think` `ui` `write` |
 | [tw93/kami](https://github.com/tw93/kami)（1） | `kami` |
 | [blader/humanizer](https://github.com/blader/humanizer)（1，MIT） | `humanizer-zh`，歸藏的中文译本 |
 | [microsoft/playwright-cli](https://github.com/microsoft/playwright-cli)（1，Apache-2.0） | `playwright-cli`，附 `LICENSE.txt` 和 `NOTICE.txt` |
 | [herdrdev/herdr](https://github.com/herdrdev/herdr)（1，Apache-2.0） | `herdr` |
-| [Agents365-ai/excalidraw-skill](https://github.com/Agents365-ai/excalidraw-skill)（1） | `excalidraw-skill` |
+| [Agents365-ai/365-skills](https://github.com/Agents365-ai/365-skills)（1） | `excalidraw-skill` |
+| [cloudflare/skills](https://github.com/cloudflare/skills)（19） | `agents-sdk` `basin` `cf-cli` `cloudflare` `cloudflare-email-service` `cloudflare-one` `cloudflare-one-migrations` `durable-objects` `gateway-workers` `k2` `nextjs-on-cloudflare` `sandbox-migrate-to-next` `sandbox-next` `sandbox-stable` `turnstile-spin` `web-perf` `workers-best-practices` `workers-profiling` `wrangler` |
+
+另外保留本机安装的 16 个 `dingtalk-*` 技能，均在 `upstream.json` 的 `untracked` 中登记，由本脚本维护三端软链接，内容不跟随上述上游更新。旧的 `dws` 技能目录已不存在；泛称钉钉操作时用 `dingtalk-shared`，明确产品时用对应的 `dingtalk-*` 技能。迁移示例见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 用法
 
 装、更新、删、软链，全在 `scripts/sync-skills.py` 里，不需要 `npx skills`。
+
+已有安装器生成的 `.skill-lock.json` 仅作本机安装记录，已被 Git 忽略；受管来源及同步范围以 `upstream.json` 为准。不要同时用另一套安装器覆盖已纳管的技能。
 
 离线建链（`--link`）只需要 `python3`，使用标准库。体检、`list`、升级上游和 `add` 还需要已登录的 [`gh` CLI](https://cli.github.com)（macOS 可用 `brew install gh && gh auth login`），脚本靠它访问 GitHub API。
 
@@ -57,7 +64,7 @@ python3 scripts/sync-skills.py --link
 
 克隆得到的是仓库已提交的版本。`--link` 按当前机器的仓库路径和用户主目录建立链接，自动创建 `links` 中配置的缺失目录，不需要 `gh` 或网络。不要把另一台机器的绝对路径软链接直接复制过来。
 
-软链策略在 `upstream.json` 的 `links` 里，各 agent 的 `exclude` 决定哪些 skill 不建链接。只使用一个 agent 时，可以在本机配置中移除另一项。新版 Codex 也能直接读取 `~/.agents/skills/`；此处保留 Codex 链接以兼容现有设置。参考 [OpenAI 的 skill 目录说明](https://learn.chatgpt.com/docs/build-skills)。
+软链策略在 `upstream.json` 的 `links` 里，各 agent 的 `exclude` 决定哪些 skill 不建链接。只使用部分 agent 时，可以在本机配置中移除不需要的项。新版 Codex 和 Pi 也能直接读取 `~/.agents/skills/`；此处保留各自的链接以兼容现有设置。参考 [OpenAI 的 skill 目录说明](https://learn.chatgpt.com/docs/build-skills)。
 
 ### 多台机器同步仓库版本
 
@@ -73,12 +80,29 @@ python3 scripts/sync-skills.py --link
 
 `git pull` 同步已经确认的仓库版本；`--apply` 则查询并升级到上游版本。想让多台机器保持一致，在一台机器升级、检查并提交推送，再让其他机器拉取即可。
 
+### 定期维护与 Git 同步
+
+本机已在 Codex 中设置每日 09:00（Asia/Taipei）维护：核对远端仓库和所有受管上游，尤其是 Matt 的更新；同步技能，核实并清理弃用入口、过期登记和三端软链接，补充 changelog，验证后提交并推送到 `origin/main`。该定时任务保存在本机 Codex 中，克隆仓库不会自动创建它。
+
+执行顺序为：核对 Git 状态与本地编辑，安全同步远端，体检上游，应用更新和已确认的裁剪，再检查技能加载、软链接与测试。网络失败不等于上游删除，来源未知的目录先确认归属；自建或手工维护内容按清单保留。遇到其他工作的未提交改动、冲突或推送失败时，保留现状并报告阻塞。
+
+只提交本轮维护的文件，恢复副本和安装器缓存不入库；没有变化时不创建空提交。有更新或需要处理的问题时通知，状态未变时保持安静。
+
 ### 升级上游：先体检，再应用
 
 ```bash
 scripts/sync-skills.py            # 只读体检，什么都不动
 scripts/sync-skills.py --apply    # 写入上游改动，并修好软链
 ```
+
+每次同步后检查行为变化。新增或移除技能、调用方式变化、工作流变化、文件约定迁移、依赖或交付要求变化，都要在 [CHANGELOG.md](CHANGELOG.md) 新增有日期的记录，交付前写清：
+
+- 改了什么、影响哪些用法，并标明上游版本或提交。
+- 更新后需要准备的输入和依赖、可直接套用的指令或命令、预期产物。
+- 旧用法如何迁移，废弃入口如何处理，以及适用的 Codex / Claude / Pi 调用方式。
+- 实际验证结果和仍需用户完成的步骤，区分技能文件更新与外部 CLI、运行时的升级。
+
+只有措辞或内部整理的小改动可以合并简述；较大更新不能只写「已同步」或罗列文件名。
 
 不带参数就是完整体检：内容漂移、上游新增或删除、本地缺失、未登记、软链断了/缺了/不该有、目标目录缺失或链接位置被占用，全报出来，**一个字节都不动**。发现需要修复的内容、登记或软链问题就 **exit 1**，可直接挂 cron 或 CI；`only` 外的可选 skill 和不冲突的外部目录只作提示，不影响退出状态。
 
@@ -101,7 +125,7 @@ scripts/sync-skills.py --apply    # 写入上游改动，并修好软链
 scripts/sync-skills.py list
 ```
 
-只读。每个本地 skill 的来源（自建/手工跟标 `不跟上游`，未知标 `未登记`；还有上游已删、被 `only` 排除、登记冲突等）和 Claude / Codex 软链状态（`✓` 已连 `✗` 缺 `−` 有意排除 `?` agent 目录不在）。末尾列出：上游有、本地还没装的；以及 `only` 外已发现、但不会自动装的可选 skill。
+只读。每个本地 skill 的来源（自建/手工跟标 `不跟上游`，未知标 `未登记`；还有上游已删、被 `only` 排除、登记冲突等）和 Claude / Codex / Pi 软链状态（`✓` 已连 `✗` 缺 `−` 有意排除 `?` agent 目录不在）。末尾列出：上游有、本地还没装的；以及 `only` 外已发现、但不会自动装的可选 skill。
 
 ### 装新 skill
 
@@ -112,7 +136,7 @@ scripts/sync-skills.py add owner/repo --all            # 整个仓库都跟
 scripts/sync-skills.py add --ref main owner/repo foo   # 指定 ref（默认 HEAD）
 ```
 
-`add` 会联网并写入。全仓库扫一遍，**任何含 `SKILL.md` 的目录都是候选**，不预设藏在哪个桶。选好后做三件事：写进 `skills/`、把来源和 `managed` 登记进 `upstream.json`、建好两边软链。
+`add` 会联网并写入。全仓库扫一遍，**任何含 `SKILL.md` 的目录都是候选**，不预设藏在哪个桶。选好后做三件事：写进 `skills/`、把来源和 `managed` 登记进 `upstream.json`、建好配置中各 agent 的软链。
 
 登记是关键。从此归版本控制管，也从此**每次同步都会被检查**。安装器的做法是拷进 agent 目录，一装进来就漂在版本控制外面。
 
@@ -128,7 +152,9 @@ scripts/sync-skills.py add --ref main owner/repo foo   # 指定 ref（默认 HEA
 scripts/sync-skills.py --apply --prune    # 同步，并裁剪有归属、上游已删除且干净的 skill
 ```
 
-上游「删掉」一个 skill 往往其实是**改了名**（Waza 把 `design` 改成了 `ui`）。脚本会同时报「上游已删除」和「上游新增」，删不删留给人。所以 `--prune` 是单独开关，且**必须配合 `--apply`**；只写 `--prune` 只会提醒你，不会删。未处理的「上游已删除」会让体检一直 exit 1。
+每次同步都要处理已确认删除或弃用的 skill：移除有效 `skills/` 目录中的旧入口，清理相关来源登记及 Codex、Claude、Pi 的旧软链接，并在 [CHANGELOG.md](CHANGELOG.md) 写明替代入口或迁移用法。交付前核对三个方面：上游是否明确删除或弃用、是否存在改名或拆分关系、三端是否还残留旧入口或断链。
+
+上游「删掉」一个 skill 往往其实是**改了名**（Waza 把 `design` 改成了 `ui`）。脚本会同时报「上游已删除」和「上游新增」，维护时先核对上游记录；改名或拆分时先接好新入口，再移除旧入口。`--prune` 是单独开关，且**必须配合 `--apply`**；只写 `--prune` 只会提醒，不会删。未处理的「上游已删除」会让体检一直 exit 1。
 
 `--prune` 只认 `managed` 历史归属。未登记目录只报警、绝不移；受管目录有本地改动、未跟踪、忽略文件，或 Git 隐藏的 `skip-worktree` / `assume-unchanged` 状态，也拒绝。目录会先原子移到 `.sync-skills-recovery/` 再核对完整基线；本次运行不永久删除恢复副本。
 

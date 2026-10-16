@@ -1,6 +1,6 @@
 ---
 name: learn
-description: "Runs a six-phase research workflow that turns unfamiliar domains, source bundles, or collected material into publish-ready output. Use when users ask in any language to research, study, deep-dive, compile sources, synthesize unfamiliar material, or turn a source bundle into a coherent reference. Not for quick lookups or single-file reads."
+description: "Runs a six-phase research workflow from source bundle to publish-ready output. Use when researching an unfamiliar domain or compiling materials into one reference. Not for quick lookups or single-file reads."
 when_to_use: "学习一下, 深入研究, 研究一下, 整理成文章, 把这批材料整理, 一站式参考, 一篇就够, 整理成长文, research, deep dive, help me understand, compile sources, unfamiliar domain"
 dispatch_intent: "Deep research, unfamiliar domain, compile sources into output"
 ---
@@ -20,15 +20,9 @@ Support the user's thinking; do not replace it.
 
 **Boundary**: single URL that only needs fetching belongs in `/read`. A single URL that needs summary or analysis can use `/read` as the fetch step, but the final answer should satisfy the user's requested summary or analysis. `/learn` is for multi-source research that produces a new structured output.
 
-## Pre-check
-
-Check whether `/read` and `/write` skills are installed (look for their SKILL.md in the skills directories). Warn if missing, do not block:
-- `/read` missing -- Phase 1 fetch falls back to native `WebFetch` / `curl`; coverage on paywalled, JS-heavy, and Chinese-platform pages degrades.
-- `/write` missing -- Phase 5 AI-pattern stripping falls back to manual scan. Phases 1-4 are unaffected.
-
 ## Choose Mode
 
-Ask the user to confirm the mode, using the environment's native question or approval mechanism if it has one:
+Infer the mode from the requested artifact and supplied materials. Ask only when plausible modes would change the scope or deliverable and the user's intent does not resolve the choice:
 
 | Mode | Goal | Entry | Exit |
 |------|------|-------|------|
@@ -58,8 +52,8 @@ Gather primary sources only: papers that introduced key ideas, official lab/prod
 
 Three ordered steps per source -- no shortcuts, no merging:
 
-1. **Discover** -- use an installed search plugin (e.g., PipeLLM) to map the landscape, then deep-search the 2-3 most promising sub-topics. No plugin: use the environment's native web search. Output is a URL list; do not fetch content here.
-2. **Fetch** -- every URL goes through `/read` when available. `/read` owns the proxy cascade, paywall detection, and platform routing (WeChat, Feishu, PDF, GitHub). Native fetch tools and raw `curl` silently fail on JS-heavy or paywalled sites and skip all of that. If `/read` is missing (Pre-check warned), fall back to native fetch and accept reduced coverage.
+1. **Discover** -- use an installed search plugin to map the landscape, then deep-search the 2-3 most promising sub-topics. No plugin: use the environment's native web search. Output is a URL list; do not fetch content here.
+2. **Fetch** -- every URL goes through `/read` when available. `/read` owns the proxy cascade, paywall detection, and platform routing (WeChat, Feishu, PDF, GitHub). Native fetch tools and raw `curl` silently fail on JS-heavy or paywalled sites and skip all of that. If `/read` is not installed, warn once without blocking, fall back to native fetch, and state the reduced coverage on paywalled, JS-heavy, and Chinese-platform pages.
 3. **File** -- tell `/read` the research project's source directory when one exists. If no directory was specified, let `/read` use a per-session temp directory and return the saved path. Move or index saved files into sub-topic directories after fetch returns. Move, don't refetch.
 
 Target: 5-10 sources for a blog post, 15-20 for a deep technical survey.
@@ -77,15 +71,7 @@ Generic wisdom is not worth distilling. Passes two or three: belongs in the outl
 
 ### Conversation Or Review Distillation
 
-When the input is a recent conversation, project review, scorecard, or diagnostic report, treat it as raw material:
-
-- Prefer already-distilled summaries, memory entries, and review outputs first; open raw transcripts only to verify a disputed detail or recover the exact source of a repeated pattern.
-- Build a candidate matrix before editing durable guidance: source/project, repeated failure, transferable rule, target layer, evidence count, and redaction risk. Promote only candidates with cross-source support or a repeated failure in the same project family.
-- Extract repeated workflow failures, invariants, and verifier surfaces.
-- Drop dated line numbers, current-score framing, private paths, one-machine setup, and repo-specific commands unless the output is explicitly for that same repo.
-- Map each durable lesson to its target layer: project docs, shared rules, skill references, or deterministic scripts.
-- Prefer references or existing skill sections for adaptive workflow guidance; use scripts only for deterministic checks that can fail reliably without project-specific context.
-- Keep evidence snippets only as notes for yourself; do not paste raw conversation history into the final artifact.
+When the input is a recent conversation, project review, scorecard, or diagnostic report, treat it as raw material. Read distilled summaries, memory entries, and review outputs first; open raw transcripts only to verify a disputed detail or recover the exact source of a repeated pattern. Before editing durable guidance, build a candidate matrix (source/project, repeated failure, transferable rule, target layer, evidence count, redaction risk) and promote only candidates with cross-source support or a repeated failure in the same project family. Map each repeated workflow failure, invariant, or verifier surface to project docs, shared rules, skill references, or a deterministic script that can fail reliably without project context. Drop dated line numbers, current-score framing, private paths, one-machine setup, and repo-specific commands unless the output is for that same repo, and keep raw conversation history out of the final artifact.
 
 ## Phase 3: Outline
 
@@ -97,7 +83,7 @@ Work through the outline section by section. A section that is hard to write mea
 
 ## Phase 5: Refine
 
-Edits only: cut redundancy without changing meaning or voice, flag broken argument flow, and mark gaps (concepts used before they are explained, claims needing sources). Do not draft new sections from scratch. Then strip AI patterns: invoke `/write` when installed, otherwise scan manually for filler, binary contrasts, and dramatic fragmentation.
+Edits only: cut redundancy without changing meaning or voice, flag broken argument flow, and mark gaps (concepts used before they are explained, claims needing sources). Do not draft new sections from scratch. Then strip AI patterns: invoke `/write` when installed, otherwise warn once and scan manually for filler, binary contrasts, and dramatic fragmentation.
 
 ## Phase 6: Self-review and Publish Readiness
 
@@ -107,7 +93,7 @@ When it reads clean from start to finish, the draft is ready for the user to pub
 
 ## Hard Rules
 
-- **No Phase 4 before the outline is solid.** A section with no sources either does not belong or needs a source found first.
+- **No Phase 4 before the outline is solid**, with a source behind every section (Phase 3).
 - **Contradictions stay visible.** When two sources contradict on a factual claim, note both positions and the evidence each gives; never silently pick one.
 - **Stop at publish confirmation.** After the user confirms the article is ready, do not upload, post, distribute, or perform any publish action unless explicitly asked.
 
@@ -115,9 +101,12 @@ When it reads clean from start to finish, the draft is ready for the user to pub
 
 | What happened | Rule |
 |---------------|------|
-| Collected 30 secondary explainers instead of primary sources | Phase 1 targets papers, official blogs, and repos by builders. Summaries are not sources. |
-| Used native fetch tools or `curl` on URLs while `/read` was installed | Phase 1 fetch is not optional. `/read` owns the proxy cascade, paywall detection, and platform routing. Bypassing it silently loses coverage on paywalled, JS-heavy, or Chinese-platform pages. |
-| Treated a convincing explainer as ground truth | Ask: does this appear in at least two different contexts from the same source? |
 | Phase 2 wrote summaries instead of teaching the concept | Digest means building the mental model. Summarizing is not digesting. |
-| AI offered to upload the article to a blog or social platform after the user said it was ready | Stop at confirmation. Publishing is the user's action, not yours. |
-| Turned a project review into a generic Waza rule without filtering | Promote only repeated workflow behavior. Leave project-specific commands, paths, and safety constraints in that project |
+
+## Output
+
+The artifact is the mode's exit from the table above. Report the saved path when files were written and complete the authorized handoff; publication requires an explicit request as stated in Hard Rules.
+
+Within the requested format and scope, choose a representation for the reader's question: prose for conclusions, diagrams for relationships and branches, interactive examples for changing conditions, and animation or video for processes whose timing or motion matters. Add a representation only when it helps the reader understand or test the explanation; a research request alone does not require building an app or producing a video.
+
+Across representations, preserve the same facts, conditions, failure branches, and uncertainty. Interactive results must follow a supported model or explicitly labeled assumptions, not decorative controls. Judge an explanation by whether its content lets the reader trace a relevant failure path, predict a condition change, or identify a load-bearing assumption; visual polish alone is not evidence of correctness.

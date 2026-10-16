@@ -22,21 +22,21 @@ import re
 from pathlib import Path
 from urllib.parse import unquote, urljoin, urlsplit
 
-from checks import (
+from html_visibility import (
     _HtmlVisibilityParser,
     _css_hidden_filters,
+    _document_custom_properties,
     visible_html_evidence,
-    visible_html_text,
 )
 from shared import (
     HTML_TEMPLATES,
     MARP_TEMPLATES,
     PPTX_TEMPLATES,
-    ROOT,
     SCHEMAS_DIR,
     SCREEN_TEMPLATES,
     content_schema_types,
     rel_to_root,
+    resolve_input,
 )
 
 # Strings longer than this are treated as prose the agent may rephrase while
@@ -120,10 +120,10 @@ class _HtmlAttributeParser(_HtmlVisibilityParser):
 
     _RESOURCE_ATTRS = {
         "audio": {"src"},
-        "image": {"href"},
+        "image": {"href", "xlink:href"},
         "img": {"src", "srcset"},
         "source": {"src", "srcset"},
-        "use": {"href"},
+        "use": {"href", "xlink:href"},
         "video": {"poster", "src"},
     }
     _SKIP_TAGS = {
@@ -142,6 +142,8 @@ class _HtmlAttributeParser(_HtmlVisibilityParser):
         ambiguous_tags: set[str],
         ambiguous_attrs: set[tuple[str, str | None]],
         visibility_ambiguous: bool,
+        *,
+        custom_properties: dict[str, str] | None = None,
     ) -> None:
         super().__init__(
             hidden_classes,
@@ -155,6 +157,7 @@ class _HtmlAttributeParser(_HtmlVisibilityParser):
             visibility_ambiguous,
             skip_tags=self._SKIP_TAGS,
             fail_closed=True,
+            custom_properties=custom_properties,
         )
         self.values: set[str] = set()
         self.base_href: str | None = None
@@ -163,7 +166,6 @@ class _HtmlAttributeParser(_HtmlVisibilityParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         tag = tag.lower()
-        attrs_map = {name.lower(): (value or "") for name, value in attrs}
         if tag == "picture":
             self._picture_depth += 1
         if tag == "base" and self.base_href is None:
@@ -187,9 +189,7 @@ class _HtmlAttributeParser(_HtmlVisibilityParser):
             self.ambiguous_resources = True
         if self._picture_depth or tag == "source":
             return
-        if tag == "source" and (attrs_map.get("media") or attrs_map.get("type")):
-            return
-        if tag in {"img", "source"} and attrs_map.get("srcset"):
+        if tag == "img" and attrs_map.get("srcset"):
             candidates = [
                 part.strip().split()
                 for part in attrs_map["srcset"].split(",")
@@ -202,10 +202,7 @@ class _HtmlAttributeParser(_HtmlVisibilityParser):
         for name, value in attrs:
             if name.lower() not in allowed or not value:
                 continue
-            if name.lower() == "srcset":
-                continue
-            else:
-                self.values.add(value.strip())
+            self.values.add(value.strip())
 
     def _handle_ambiguous_starttag(
         self,
@@ -376,8 +373,7 @@ def _brief_contract_issues(
         korean_pptx_fallback = (
             template == "slides-en"
             and requested_family == "ko"
-            and isinstance(formats, list)
-            and "pptx" in formats
+            and formats == ["pptx"]
         )
         korean_marp_fallback = (
             template == "slides-marp"
@@ -419,6 +415,38 @@ def _brief_contract_issues(
     return issues
 
 
+def _changelog_contract_issues(content: dict) -> list[str]:
+    """Enforce the per-version change envelope across the three arrays.
+
+    The supported JSON Schema subset cannot express a sum across sibling
+    arrays, so keep the executable 4-8 item rule next to schema validation.
+    """
+    issues: list[str] = []
+    versions = content.get("versions")
+    if not isinstance(versions, list):
+        return issues
+    fields = ("breaking", "features", "fixes")
+    for index, version in enumerate(versions):
+        if not isinstance(version, dict):
+            continue
+        if any(field in version and not isinstance(version[field], list) for field in fields):
+            continue
+        present = [field for field in fields if field in version]
+        if not present:
+            issues.append(
+                f"content.versions[{index}]: requires at least one of "
+                "'breaking', 'features', or 'fixes'"
+            )
+            continue
+        total = sum(len(version[field]) for field in present)
+        if total < 4 or total > 8:
+            issues.append(
+                f"content.versions[{index}]: expected 4-8 total change entries "
+                f"across breaking/features/fixes, got {total}"
+            )
+    return issues
+
+
 def validate_content_file(data) -> tuple[str | None, list[str]]:
     """Validate a parsed content IR envelope. Returns (doc_type, issues)."""
     if not isinstance(data, dict):
@@ -447,6 +475,8 @@ def validate_content_file(data) -> tuple[str | None, list[str]]:
         if isinstance(brief, dict):
             issues.extend(_brief_contract_issues(brief, doc_type, lang))
     issues.extend(validate_node(body, load_schema(doc_type)))
+    if doc_type == "changelog":
+        issues.extend(_changelog_contract_issues(body))
     return doc_type, issues
 
 
@@ -478,7 +508,15 @@ def _contains_atomic(haystack: str, needle: str) -> bool:
 
 
 def html_resource_evidence(raw: str) -> tuple[set[str], bool]:
-    parser = _HtmlAttributeParser(*_css_hidden_filters(raw, fail_closed=True))
+    custom_properties = _document_custom_properties(raw)
+    parser = _HtmlAttributeParser(
+        *_css_hidden_filters(
+            raw,
+            fail_closed=True,
+            custom_properties=custom_properties,
+        ),
+        custom_properties=custom_properties,
+    )
     parser.feed(raw)
     if parser._ambiguous_markup:
         return set(), True
@@ -623,9 +661,7 @@ def check_content(
         print(f"  known types: {known}")
         return finish("contract", 2)
 
-    content_path = Path(args[0])
-    if not content_path.is_absolute():
-        content_path = ROOT / content_path
+    content_path = resolve_input(args[0])
     rel = rel_to_root(content_path)
     if not content_path.exists():
         print(f"ERROR: {args[0]}: file not found")
@@ -648,9 +684,7 @@ def check_content(
     if len(args) == 1:
         return 0
 
-    html_path = Path(args[1])
-    if not html_path.is_absolute():
-        html_path = ROOT / html_path
+    html_path = resolve_input(args[1])
     html_rel = rel_to_root(html_path)
     if not html_path.exists():
         print(f"ERROR: {args[1]}: file not found")

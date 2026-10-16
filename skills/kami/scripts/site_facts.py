@@ -11,6 +11,7 @@ import html
 import re
 from collections.abc import Mapping
 from html.parser import HTMLParser
+from pathlib import Path
 
 from shared import (
     CLAUDE_CODE_INSTALL_COMMANDS,
@@ -20,7 +21,9 @@ from shared import (
     DIAGRAM_TEMPLATES,
     GENERIC_AGENT_INSTALL_COMMAND,
     PUBLIC_DOCUMENT_TEMPLATE_KINDS,
+    REPO_ROOT,
     ROOT,
+    SITE_ROOT,
     kami_version,
     public_document_template_count,
     public_document_template_kinds,
@@ -41,13 +44,23 @@ SITE_LOCALE_PAGES = (
 # locale-page tuple so adding a locale automatically joins both checks.
 # index.md is the Markdown twin agents read instead of the homepage, so it
 # carries the same install and product facts.
+DEVELOPER_FACT_FILES = (
+    "developers.html",
+    "developers.md",
+)
 FULL_PUBLIC_FACT_FILES = (
     "README.md",
     "llms.txt",
     "index.md",
     SITE_BASE_PAGE,
     *SITE_LOCALE_PAGES,
+    *DEVELOPER_FACT_FILES,
 )
+SITE_VERSION_BADGE_FILES = (SITE_BASE_PAGE, *SITE_LOCALE_PAGES)
+# Anchored on the badge's own copy rather than a bare version pattern: these
+# pages also print the Claude Code minimum as "v2.1.142+", which a generic
+# `v\d+\.\d+\.\d+` judge would read as a stale Kami badge on every page.
+SITE_VERSION_BADGE = re.compile(r"Design System\s*·\s*v(\d+\.\d+\.\d+)")
 REDIRECT_SITE_FILE = "index-en.html"
 SITE_SURFACE_ABSENT = "__site_surface_absent__"
 
@@ -96,6 +109,15 @@ def _contains_diagram_count(text: str, expected: int) -> bool:
     return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
 
 
+def public_path(rel: str) -> Path:
+    """Where a public fact file lives: README at the repo root, pages under site/."""
+    if SITE_ROOT is None:
+        return ROOT / rel
+    if rel == "README.md":
+        return REPO_ROOT / rel
+    return SITE_ROOT / rel
+
+
 def _file_texts(files: Mapping[str, str] | None) -> tuple[dict[str, str], list[str]]:
     if files is not None:
         return dict(files), []
@@ -103,10 +125,10 @@ def _file_texts(files: Mapping[str, str] | None) -> tuple[dict[str, str], list[s
     texts: dict[str, str] = {}
     issues: list[str] = []
     site_files = (*FULL_PUBLIC_FACT_FILES, REDIRECT_SITE_FILE)
-    if not any((ROOT / rel).exists() for rel in site_files):
+    if not any(public_path(rel).exists() for rel in site_files):
         return {SITE_SURFACE_ABSENT: ""}, []
     for rel in site_files:
-        path = ROOT / rel
+        path = public_path(rel)
         if not path.exists():
             issues.append(f"{rel}: missing public fact file")
             continue
@@ -226,11 +248,22 @@ def site_fact_issues(files: Mapping[str, str] | None = None) -> list[str]:
         if rel != "llms.txt" and CLAUDE_DESKTOP_PACKAGE_URL not in text:
             issues.append(f"{rel}: missing Claude Desktop package URL {CLAUDE_DESKTOP_PACKAGE_URL}")
 
-        # The site pages carry a hand-written Kami version badge; tie it to the
-        # tracked VERSION file so a release bump cannot leave a page behind.
-        # README and llms.txt intentionally carry no version string.
-        if rel.endswith(".html") and f"v{kami_version()}" not in text:
-            issues.append(f"{rel}: missing Kami version badge v{kami_version()}")
+        # The homepage HTML pages carry a hand-written Kami version badge; tie
+        # those pages to VERSION without forcing the prose/developer files to
+        # repeat a badge they do not display.
+        # Each page writes the badge twice, in the eyebrow and in the type
+        # sample. Check every occurrence: a presence-only test passed while a
+        # stale second badge sat next to a freshly bumped first one.
+        if rel in SITE_VERSION_BADGE_FILES:
+            badges = SITE_VERSION_BADGE.findall(text)
+            stale = sorted({badge for badge in badges if badge != kami_version()})
+            if not badges:
+                issues.append(f"{rel}: missing Kami version badge v{kami_version()}")
+            elif stale:
+                found = ", ".join(f"v{badge}" for badge in stale)
+                issues.append(
+                    f"{rel}: stale Kami version badge {found} (VERSION is {kami_version()})"
+                )
 
         if not _contains_template_count(text, template_count):
             issues.append(f"{rel}: missing public document template count {template_count}")
@@ -288,7 +321,7 @@ def site_recipe_issues(files: Mapping[str, str] | None = None) -> list[str]:
 
 
 def check_site_facts(verbose: bool = False) -> int:
-    if not any((ROOT / rel).exists() for rel in (*FULL_PUBLIC_FACT_FILES, REDIRECT_SITE_FILE)):
+    if not any(public_path(rel).exists() for rel in (*FULL_PUBLIC_FACT_FILES, REDIRECT_SITE_FILE)):
         print("OK: public site facts skipped (site files absent)")
         return 0
 

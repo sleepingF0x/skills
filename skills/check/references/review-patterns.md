@@ -49,7 +49,7 @@ Flag a classification, ordering, threshold, count, or eligibility rule computed 
 
 ## Test surface fidelity
 
-A test is not coverage when it pins a helper that production never reaches or asserts the literal source form of a command/config string instead of the shipped entry point. Ask whether it fails on the unfixed code and whether users execute the asserted path. If either answer is no, the test is a finding.
+A test is not coverage when it pins a helper that production never reaches or asserts the literal source form of a command/config string instead of the shipped entry point. Ask whether it fails on the unfixed code and whether users execute the asserted path. If either answer is no, the test is a finding. Then ask the two questions a red-green run cannot answer. What can the assertion not see: a matcher scoped to tagged instances reads an untagged one as exempt rather than as a blind spot, an input set built before the producer's own transformation never contains what production emits, and a parity check comparing two copies to each other is blind to what both are missing. What benign change turns it red: an anchor on exact wording, on a positional slice, or on one spelling of a rule usually written another way survives the removal it exists to catch and fails on a rewrite. Anchor on the fact, the identifier, or the enclosing structure.
 
 ## Never-shipped migrations
 
@@ -58,3 +58,11 @@ Reject migration scaffolding, version-gated defaults, or old-key carry-forward l
 ## Unknown identifiers
 
 Search every new function, type, variable, asset, command target, and config key that the diff assumes already exists. No result outside the new diff means the dependency is unproven. Dynamic registries require checking their generation or lookup path rather than trusting a name match.
+
+## Dependency changes
+
+Verify lockfile consistency in the project's declared environment. Check the full manifest, overrides, resolver configuration, and dependency diff, then run the project's frozen/locked verification. Regenerate in an isolated checkout only to investigate a concrete discrepancy, using the complete proposed inputs and declared toolchain. Equal bytes do not prove provenance; differences require explanation, not an assumption of hand-editing. Confirm that the resolved dependency graph implements the requested change.
+
+Automated security PRs get two extra checks their scanner does not do. First, whole-file reserialization: bots that rewrite a manifest can silently escape non-ASCII (emoji, CJK) or reorder keys, so diff the manifest against base in full rather than only the version line. Second, reachability: confirm the package is actually built into the shipped artifact (`cargo tree -i <pkg> --target all`, or the equivalent import/feature check) before repeating the advisory's severity, since an inert lockfile entry is not a live vulnerability in this project.
+
+When a version pin exists, find out why before moving anything near it: `git log -S'<pinned-name>' -- <manifest>` usually names the bug it was added for. A bump that satisfies the advisory but leaves a companion pin at its old version can be worse than not bumping at all.

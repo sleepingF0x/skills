@@ -11,7 +11,7 @@ How to write, not how to lay out. Good typography with bad content is just "poli
 - Avoid: "Delivered significant business growth"
 - Use: write the specific numbers and deltas
 
-Every sentence should survive the follow-up question "how much, specifically?". If you can't answer, don't write it.
+Use verified numbers for quantitative claims. Explain mechanisms and judgments with concrete facts or examples; do not add a number just to satisfy a quota.
 
 ### 2. Judgment over execution
 
@@ -25,7 +25,7 @@ Junior writes "what they did". Mid writes "how they did it". **Senior writes "wh
 - Avoid: "Embrace the AI era, pioneer digital transformation paradigms"
 - Use: say it in your own words, skip the industry vocabulary
 
-**Distinctive phrasing is memorable**. A line you invented beats a line borrowed from an earnings call. It sounds like a person thinking, not a deck regurgitating.
+Use words that fit the author and the subject. Keep an established voice; do not invent a slogan to make a paragraph seem distinctive.
 
 ### 4. Honest boundaries
 
@@ -40,6 +40,7 @@ For companies, products, people, launch dates, versions, funding, financials, ma
 - Do not write "latest", "new", version numbers, or market figures before checking them
 - If sources conflict, list the conflict and ask the user instead of choosing one
 - If only the magnitude is known, write the magnitude instead of false precision
+- A number you compute from supplied figures (a growth rate, a share, an "about 60% faster") stays next to its inputs ("23 to 9 minutes, about 61% less") or is marked as derived (推算 / derived) where it appears, in captions and tables too. Never round it into a standalone headline metric the source did not state
 
 ### 6. Materials serve recognition
 
@@ -94,10 +95,10 @@ takeaways; each body chapter stands alone as an essay.
 
 **Rules**:
 - Every chapter opens with a "claim paragraph" (2-3 sentences summarizing the argument)
-- After long paragraphs (>5 lines), intersperse callouts / quotes / figures to relieve eye fatigue
+- Break long paragraphs with real evidence, an attributed quote, or a useful figure when one exists. Otherwise edit the prose or add a descriptive subhead; do not invent a component for rhythm alone
 - Highlight key data / conclusions with `<span class="hl">`
 - Chapters with external facts must preserve source cues so readers can distinguish fact, judgment, and inference
-- Use "chapter breaks" (blank page + chapter number) between major sections
+- Give a major section its own opener only when it improves navigation. Do not insert a ceremonial blank page
 
 ### Letter
 
@@ -131,7 +132,7 @@ paragraphs.
 
 **Rules**:
 - Visuals first, text supports
-- Every project's outcome must be quantifiable
+- Support each project outcome with verified metrics or concrete qualitative evidence
 - Final product screenshots / real photos > design mockups > code screenshots
 - If project images are missing, mark the gap. Do not fill the layout with unrelated imagery
 - Don't list every tech stack - a mono tag row is enough
@@ -214,7 +215,7 @@ Structure is necessary but not sufficient. These bars define what separates comp
 
 ### Resume
 
-**Impact formula**: Action + Scope + Measurable Result + Business Outcome. Every bullet must answer "what did I do, at what scale, with what result, and why did it matter?"
+**Impact formula**: Action + Honest Scope + Observable Result. Explain the business outcome when relevant; use verified metrics when available and concrete qualitative evidence otherwise.
 
 | Avoid | Use |
 |---|---|
@@ -224,10 +225,10 @@ Structure is necessary but not sufficient. These bars define what separates comp
 
 **Rules**:
 1. Start every bullet with a strong past-tense verb (designed, led, reduced, migrated). Never "Responsible for" or "Helped with"
-2. Every bullet needs at least one number. If no hard metric exists, use scope (team size, user count, codebase size)
+2. Use verified numbers when they explain the result or scope. If no metric is available, state the observable outcome without inventing one
 3. Connect technical work to business outcomes: revenue, cost, reliability, user retention, time-to-market
 4. Include before/after pairs when possible: "from X to Y" is more credible than "improved by Z%"
-5. Use precise numbers over round ones: "$280K" reads as measured, "$300K" reads as estimated
+5. Match the source’s precision: keep a measured value exact and label an estimate as an estimate
 6. Distinguish ownership: "owned" vs "contributed to" vs "coordinated". Inflating scope is the fastest way to lose credibility in an interview
 
 **Senior vs junior**: junior resumes show execution ("built X"). Senior resumes show judgment ("evaluated 3 approaches, chose Y because of tradeoff Z") and multiplier effect ("mentored 4 engineers, 2 promoted within 12 months")
@@ -236,7 +237,7 @@ Structure is necessary but not sufficient. These bars define what separates comp
 
 **Core rule**: open every case study with the problem and its stakes, not with your role or the project name.
 
-**Density bar**: each project page reads as a complete case study. At target font size, a body page that renders under half-full is a draft defect, not a design choice. Merge upward into the previous project or downward into the next; do not pad with filler prose. See SKILL.md Step 4.1 for the items-per-page contract.
+**Density bar**: each project page reads as a complete case study. At target font size, a body page that renders under half-full is a draft defect, not a design choice. Merge upward into the previous project or downward into the next; do not pad with filler prose. See «Page density» below for the items-per-page contract.
 
 | Avoid | Use |
 |---|---|
@@ -245,17 +246,17 @@ Structure is necessary but not sufficient. These bars define what separates comp
 
 **Rules**:
 1. Show 2-3 decision points where you chose between alternatives. Explain the tradeoff, not just the winner
-2. Three-layer outcomes: quantitative metric (conversion rate +80%) + qualitative evidence (user quote) + business context ($1.2M additional annual revenue)
+2. Support outcomes with verified metrics or concrete qualitative evidence, and explain the business context when relevant. Include user quotes only when supplied or sourced
 3. State your exact role and scope: "I designed" vs "I led" vs "I contributed to" are very different signals
 4. 3-5 deep case studies beats 12 shallow ones. Depth is credibility
-5. Always close the loop: every problem introduced must have a measured resolution
+5. Close the loop with an observable result for each problem; state unresolved limits when the evidence does not establish a resolution
 6. Prefer final product screenshots over mockups. If product images are missing, mark the gap rather than filling with unrelated imagery
 
 ### Slides
 
 **Core rule**: every slide title should be a full declarative sentence (an assertion), not a topic label. The body provides one piece of evidence supporting the assertion.
 
-**Density bar**: each body slide carries one assertion + 3-5 supporting items (or 1 chart + 2-3 callouts). Slides with fewer than 3 items and no chart must merge into an adjacent slide. Pinned `.co` callouts at bottom are intentional; bare trailing whitespace on a slide is a draft defect. See SKILL.md Step 4.1.
+**Density bar**: each body slide carries one assertion + 3-5 supporting items (or 1 chart + 2-3 callouts). Slides with fewer than 3 items and no chart must merge into an adjacent slide. A pinned `.co` callout is valid only when it adds a real relationship, constraint, or conclusion; never use it to fill trailing whitespace. See «Page density» below.
 
 | Avoid | Use |
 |---|---|
@@ -287,7 +288,7 @@ Structure is necessary but not sufficient. These bars define what separates comp
 
 **Core rule**: lead with the variant perception (what you see that the market doesn't) and tie every thesis driver to a measurable financial impact.
 
-**Density bar**: a body page with only a 2-row table and a sentence is too thin. Each page should carry one section + one table/chart + supporting prose. Combine sections rather than leaving a page half-empty. See SKILL.md Step 4.1.
+**Density bar**: a body page with only a 2-row table and a sentence is too thin. Each page should carry one section + one table/chart + supporting prose. Combine sections rather than leaving a page half-empty. See «Page density» below.
 
 | Avoid | Use |
 |---|---|
@@ -310,15 +311,15 @@ Structure is necessary but not sufficient. These bars define what separates comp
 
 **Core rule**: each chapter's claim paragraph must survive the "so what?" test. If the reader asks "why should I care?", the first paragraph must have the answer.
 
-**Density bar**: each body page carries 1 chapter heading + 2-4 paragraphs + at most 1 figure. A chapter that fits in under 40% of a page must merge into the next chapter rather than claiming its own page. Trailing whitespace at the bottom of a body page is a draft defect. See SKILL.md Step 4.1.
+**Density bar**: each body page carries 1 chapter heading + 2-4 paragraphs + at most 1 figure. A chapter that fits in under 40% of a page must merge into the next chapter rather than claiming its own page. Trailing whitespace at the bottom of a body page is a draft defect. See «Page density» below.
 
 After converting from Markdown, remove or convert thematic breaks, bold markers,
 and inline-code backticks before delivery, then run `python3 scripts/build.py
 --check-markdown path/to/filled.pdf` on the rendered PDF.
 
 **Rules**:
-1. Evidence density: at least one data point per paragraph. A paragraph with zero numbers is an opinion paragraph and should be rare
-2. Callout or figure after every 3-4 paragraphs of dense text. Long unbroken prose causes eye fatigue in print
+1. Evidence density: support factual claims with sources, examples, or verified measurements. Do not add numbers to paragraphs that explain a mechanism or judgment
+2. When dense prose needs relief, use an existing attributed quote, evidence figure, descriptive subhead, or paragraph edit. Do not manufacture a callout on a fixed cadence
 3. Counter-arguments addressed before they become reader objections. If you can predict the pushback, address it proactively
 4. Source cues preserved inline: "(Gartner, 2025)" or "according to the company's 10-K" so readers can distinguish fact from inference
 5. Each chapter should stand alone as a mini-essay with its own arc: claim -> evidence -> conclusion
@@ -347,7 +348,7 @@ and inline-code backticks before delivery, then run `python3 scripts/build.py
 
 **Core rule**: one sentence per change, verb-led, user-facing language. If the user cannot understand the change from the sentence alone, rewrite it.
 
-**Density bar**: each version block carries 4-8 entries. A version with fewer than 4 entries should sit on the same page as the prior version rather than triggering a near-empty page. See SKILL.md Step 4.1.
+**Density bar**: each version block carries 4-8 entries. A version with fewer than 4 entries should sit on the same page as the prior version rather than triggering a near-empty page. See «Page density» below.
 
 | Avoid | Use |
 |---|---|
@@ -356,11 +357,29 @@ and inline-code backticks before delivery, then run `python3 scripts/build.py
 
 **Rules**:
 1. Breaking changes always first, with migration path ("Replace `config.old` with `config.new`; run `migrate.sh` to convert")
-2. 5-8 items per section. If more, this is probably 2 releases
+2. Group changes by user-visible outcome. Item counts do not determine release boundaries
 3. Group by user impact (Breaking / Features / Fixes), not by component or file
 4. No internal jargon. "Fix memory leak in image decoder" is clear. "Fix retain cycle in UIImageDecoderBridge" is not
 
 ---
+
+## Page density (multi-page documents)
+
+Applies to slides-weasy, long-doc, portfolio, equity-report, and changelog. Resume, one-pager, and letter have their own length contracts. The most common draft defect in a generated multi-page document is content split too thin, so several pages never fill.
+
+Body pages target 60-80% fill; cover, table of contents, and closing colophon are exempt. The last body page may close at 40-60%; forcing balance there usually means padding.
+
+| Template | Typical body page | Floor (merge if below) |
+|---|---|---|
+| slides-weasy | 1 assertion title + 3-5 supporting items, or 1 chart + 2-3 callouts | Under 3 items and no chart: merge into an adjacent slide |
+| long-doc | 1 chapter heading + 2-4 paragraphs + at most 1 figure | Chapter renders under 40% of a page: merge into a neighbor |
+| portfolio | 1 project header + 1 hero image + 3-5 outcome bullets | No image and under 3 outcomes: merge with an adjacent project |
+| equity-report | 1 section + 1 table or chart + supporting prose | Only a 2-row table on the page: combine sections |
+| changelog | 1 version block + 4-8 entries | Under 4 entries: share the page with the prior version |
+
+A body page that renders under 50% full gets one of these, in order: merge upward into the previous section; merge downward into the next; remove the page and fold its one useful assertion or proof into a neighbor; convert existing information to a small table or diagram only when that form is clearer even without the density problem. Never fill a sparse page with filler prose, a heading restated as a sentence, invented statistics, the prior page reworded, or a callout, chart, icon, or image whose only job is to occupy space. If no merge applies, the page should not exist.
+
+`--check-density` (inside `--deliver`) reports trailing whitespace per page; a body page flagged there is a draft defect to re-author with the merge rule above.
 
 ## Diagrams and infographics
 
@@ -412,6 +431,7 @@ Across any document:
 | ~$10M | $9,876,543 (false precision reads fake) |
 | 2026.04 | 2026年4月 / April 2026 (when horizontal space is tight) |
 | -> | → |
+| n/a (EN), 不适用 (CN), 해당 없음 (KO) in an empty table cell | an em dash (U+2014); the Markdown residue check rejects it in every document |
 
 ### Language-specific punctuation
 
@@ -438,9 +458,9 @@ Literal alignment is the failure mode; meaning alignment is the goal. Every time
 
 - **Read each locale straight through as a native reader**, not against the source text. Flag every sentence that carries the source language's skeleton: word order, comparison patterns, and punctuation rhythm are all allowed to diverge from the source.
 - **Rewrite, don't adjust.** A source-shaped sentence usually needs its structure rebuilt, not a word swapped. `Buying X is like buying A + B + C at once` may need to become a fresh comparison native speakers would actually say, at the cost of dropping the source's phrasing entirely.
-- **Never transplant rhetorical devices.** Number parallelism, puns, and alliteration die in translation. A benefit line that reads as a device (`One price, five tools`) becomes a plain benefit statement in the target language (`一次购买 永久更新`-style: what the buyer gets, no cleverness).
+- **Localize the expression, preserve the facts.** Rework puns and parallel phrasing only when needed for natural local speech. `One price, five tools` can become `一次购买，包含五款工具`, never `永久更新` unless lifetime updates are part of the source offer.
 - **User-adopted phrasing wins.** If the maintainer has already approved a specific line in one locale, treat it as fixed and localize around it, not over it.
-- **Report the pass.** The handoff lists rewritten-sentence counts per locale; `0 rewrites` after a large copy change is a signal the pass did not happen.
+- **Report coverage and unresolved issues.** List the locales and surfaces checked. Keep already-natural sentences; a rewrite count is not evidence of quality.
 
 ---
 
@@ -454,7 +474,7 @@ Run through before shipping every draft:
 - [ ] Are all numbers verifiable? If asked "where did this come from", can you answer?
 - [ ] Are current facts, versions, launch dates, funding, financials, and specs backed by reliable sources?
 - [ ] Does every branded document have logo, product image, or UI screenshot coverage? Are missing materials clearly marked?
-- [ ] At least one **distinctive phrase** (not industry boilerplate)?
+- [ ] Does the wording fit the author and subject, without stock phrases or forced slogans?
 - [ ] Every emphasized (brand-colored) span is either a number or a distinctive phrase? If not, remove the emphasis.
 - [ ] Paragraph lengths even? No paragraph over 5 lines?
 - [ ] Number format consistent (commas, percent signs, arrows)?
@@ -477,7 +497,7 @@ Invariant #10 bans italic in print templates. Landing pages are screen-only, so 
 ### Hero rules
 
 - **Positioning comes before feature count.** Name the real product category in the first viewport. If the product has grown beyond its old anchor, rewrite the category instead of adding more feature bullets under the old one.
-- **Tagline is one sentence, not a paragraph.** If it needs a comma, it is too long. The user decides in 3 seconds whether to scroll.
+- **Tagline is one sentence, not a paragraph.** State what the product does in words the reader uses.
 - **Tokens (key facts) are scannable proof.** Price, platform, refund policy, compatibility. No adjectives. `$9 lifetime` beats `Affordable pricing for everyone`.
 - **CTA pair: secondary (try) + primary (buy).** Ghost button for low-commitment action, filled button for revenue action. Never three buttons.
 
@@ -490,12 +510,12 @@ Invariant #10 bans italic in print templates. Landing pages are screen-only, so 
 
 - **Show, don't describe.** Real screenshots replace feature paragraphs. Each panel is one shipped tool, one workflow, or one state users can actually reach.
 - **Technical products can show the workflow itself.** A terminal transcript, command draft, or error recovery panel is a product screenshot when it shows the actual review/confirm boundary.
-- **Poetic captions, not marketing copy.** The line under each screenshot should evoke, not explain. `Rainwater clears the soil` over `Efficiently clean your system caches`.
+- **Captions add information.** Name what the screenshot shows or explain a useful detail. Omit a caption that repeats the heading; use imagery only when it helps the reader understand.
 - **3-6 panels maximum.** More than 6 and the auto-rotate becomes noise. Users remember 4.
 
 ### Features list rules
 
-- **Name is the tool, subtitle is the metaphor.** Feature name in brand color, subtitle in small muted text.
+- **Name the feature directly.** Add a subtitle only when it supplies useful context. Do not require a metaphor.
 - **Description answers "so what?"** Not what it does, but why the user should care. One paragraph, 2-3 sentences.
 - **Mechanics fold into the FAQ.** A feature block sells the outcome in a few quiet points; how the product behaves (activation, boundaries, safety rules, edge cases) belongs in FAQ answers. A standalone "behaviors" section is documentation leaking into the pitch, and it usually costs a full screen of scroll.
 
@@ -520,7 +540,7 @@ Layout lives in `references/design.md` «Testimonial wall»; these rules govern 
 - **State the price once, at medium weight.** One factual line (`$N · One-time purchase` shape), set in a readable but non-headline size. A giant price number turns the section into a price tag and invites "why so expensive" instead of "what do I get". Emphasis comes from placement (centered, own block, generous whitespace), not font size.
 - **The number appears at most twice on the page.** Once in the pricing section, at most once as a hero token. Every extra repetition of the price amplifies price sensitivity.
 - **CTA buttons carry the action, never the price.** `Buy {{PRODUCT}}`, not `Buy for $19`. The buyer already saw the number; putting it on the button makes the click feel like a payment instead of a decision.
-- **Keep the card quiet.** No border, no shadow on the pricing card; if it uses a gradient, it must resolve to the page background color, not to white. The pricing block should feel native to the page, not like a foreign widget.
+- **Keep the block quiet.** No border, shadow, or gradient on pricing. One restrained fill is enough when grouping is necessary; otherwise let typography and spacing carry it.
 - **Compare honestly.** Name the competitors, show their subscription price with `<s>`, then your one-time price. No vague "other tools charge more".
 - **Terms at the bottom.** Payment methods, refund policy, device limit. Factual, not promotional.
 
@@ -535,7 +555,7 @@ Layout lives in `references/design.md` «Testimonial wall»; these rules govern 
 
 ### Footer rules
 
-- **Brand mark + closing ethos.** The footer is the last impression. A poetic closing line beats a copyright notice.
+- **Keep the footer useful.** Include the brand and relevant links or license information. Preserve an established tagline; do not invent a poetic closing line to fill the space.
 - **Links are navigation, not decoration.** Only link to pages that exist. Dead links destroy trust faster than missing links.
 
 ---

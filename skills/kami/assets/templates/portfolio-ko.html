@@ -57,7 +57,7 @@
     --border:    #e8e6dc;
     --border-soft:#e5e3d8;
     --tag-bg:    #E4ECF5;
-    --serif: "Source Han Serif K", "Source Han Serif KR", "Noto Serif KR", "Apple SD Gothic Neo", "AppleMyungjo", Charter, Georgia, serif;
+    --serif: "Source Han Serif K", "Source Han Serif KR", "Noto Serif KR", "Nanum Myeongjo", "AppleMyungjo", "Apple SD Gothic Neo", Charter, Georgia, serif;
     --sans: var(--serif);
 
     --rhythm-module:  14pt;
@@ -102,6 +102,15 @@
     letter-spacing: 2pt;
     text-transform: uppercase;
   }
+  /* Brand logo slot (optional, from brand profile; styles apply only once uncommented). */
+  .brand-logo {
+    display: block;
+    height: 72px;
+    width: auto;
+    max-width: 200px;
+    object-fit: contain;
+    margin-bottom: 16pt;
+  }
   .cover-center {
     display: flex;
     flex-direction: column;
@@ -121,12 +130,6 @@
     color: var(--olive);
     line-height: 1.4;
     max-width: 80%;
-  }
-  .cover-line {
-    width: 80pt;
-    height: 2pt;
-    background: var(--brand);
-    margin: 18pt 0 4pt 0;
   }
   .cover-meta {
     display: flex;
@@ -158,9 +161,6 @@
     font-weight: 500;
     line-height: 1.2;
     margin-bottom: 20pt;
-    border-left: 2.5pt solid var(--brand);
-    border-radius: 1.5pt;
-    padding-left: 8pt;
   }
   .about-lead {
     font-family: var(--serif);
@@ -198,9 +198,6 @@
     align-items: flex-start;
     justify-content: space-between;
     margin-bottom: var(--rhythm-module);
-    border-left: 2.5pt solid var(--brand);
-    border-radius: 1.5pt;
-    padding-left: 8pt;
   }
   .project-num {
     font-family: var(--serif);
@@ -352,9 +349,6 @@
     font-size: 24pt;
     font-weight: 500;
     margin-bottom: 16pt;
-    border-left: 2.5pt solid var(--brand);
-    border-radius: 1.5pt;
-    padding-left: 8pt;
   }
   .work-item {
     display: grid;
@@ -412,12 +406,6 @@
     margin-bottom: 20pt;
     color: var(--near-black);
   }
-  .contact-line {
-    width: 80pt;
-    height: 2pt;
-    background: var(--brand);
-    margin-bottom: 24pt;
-  }
   .contact-list {
     font-size: 12pt;
     line-height: 1.55;
@@ -450,17 +438,17 @@
     text-align: left;
     font-weight: 500;
     color: var(--dark-warm);
-    padding: 5pt 8pt;
-    border-bottom: 1pt solid var(--border);
+    padding: 6pt 8pt;
+    border-bottom: 0.6pt solid var(--border);
     background: transparent;
   }
   table td, .kami-table td {
-    padding: 4pt 8pt;
-    border-bottom: 0.3pt solid var(--border-soft);
+    padding: 5pt 8pt;
+    border-bottom: 0.25pt solid var(--border);
     vertical-align: top;
   }
   table.compact th, .kami-table.compact th { padding: 3pt 6pt; font-size: 8pt; }
-  table.compact td, .kami-table.compact td { padding: 2pt 6pt; font-size: 8pt; line-height: 1.4; }
+  table.compact td, .kami-table.compact td { padding: 2.5pt 6pt; font-size: 8pt; line-height: 1.4; }
   table.financial td:not(:first-child), .kami-table.financial td:not(:first-child) {
     text-align: right; font-variant-numeric: tabular-nums;
   }
@@ -469,7 +457,7 @@
     background: var(--ivory);
   }
   table .total td, .kami-table .total td {
-    font-weight: 500; border-top: 1pt solid var(--brand); border-bottom: none; color: var(--near-black);
+    font-weight: 500; border-top: 0.6pt solid var(--border); border-bottom: none; color: var(--near-black);
   }
 </style>
 </head>
@@ -477,12 +465,16 @@
 
 <!-- ========== 표지 ========== -->
 <div class="cover">
-  <div class="cover-top">{{연도 또는 분야 태그 · 예: "Selected Works 2023–2026"}}</div>
+  <div class="cover-head">
+    <!-- Brand logo slot (optional, from the brand profile logo field). Leave commented when there is no logo; do not insert a broken image.
+         To use, uncomment and set src to an expanded local absolute path:
+    <img class="brand-logo" src="/absolute/path/to/logo.svg" alt=""> -->
+    <div class="cover-top">{{연도 또는 분야 태그 · 예: "Selected Works 2023–2026"}}</div>
+  </div>
 
   <div class="cover-center">
     <div class="cover-name">{{이름<br>포트폴리오}}</div>
     <div class="cover-tagline">{{한 줄 자기 설명 / 포트폴리오 주제}}</div>
-    <div class="cover-line"></div>
   </div>
 
   <div class="cover-meta">
@@ -649,7 +641,6 @@
 <section class="contact">
   <div class="contact-eyebrow">Let's Talk</div>
   <div class="contact-title">{{연락을 환영하는 한 문장 · 예: "새로운 협업을 기대합니다"}}</div>
-  <div class="contact-line"></div>
   <div class="contact-list">
     <div><strong>Email</strong><a href="mailto:{{EMAIL}}">{{EMAIL}}</a></div>
     <div><strong>Phone</strong>{{전화번호}}</div>

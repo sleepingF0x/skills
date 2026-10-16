@@ -9,12 +9,13 @@
 #   MEMORY.md path          -> built via sed on pwd; unusual chars produce wrong project key; verify manually if (none) seems wrong
 #   Conversation scope      -> summary scans 3 recent previous project files across Claude/Codex; deep streams all previous project files; every file modified in the live window is excluded
 #   MCP token estimate      -> assumes ~25 tools/server, ~200 tokens/tool; treat as directional, not precise
-#   Tier misclassification  -> .next/, __pycache__, .turbo/ can inflate file count; recheck manually if tier feels wrong
 set -euo pipefail
 
 P=$(pwd)
 SETTINGS="$P/.claude/settings.local.json"
-TIER="${1:-auto}"
+# The first argument is retained for launcher compatibility. It is an audit
+# hint only; file, contributor, and skill counts never select requirements.
+AUDIT_HINT="${1:-auto}"
 MODE="${2:-summary}"
 SCRIPT_PATH="${BASH_SOURCE[0]}"
 case "$SCRIPT_PATH" in
@@ -155,7 +156,7 @@ truncated = len(raw) > limit
 text = raw[:limit].decode("utf-8", errors="replace")
 text = re.sub(r"-----BEGIN [^-\r\n]+-----.*?(?:-----END [^-\r\n]+-----|\Z)", "[REDACTED PRIVATE KEY]", text, flags=re.I | re.S)
 text = re.sub(r"\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9]{12,}|github_pat_[A-Za-z0-9_]{12,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[A-Z0-9]{16}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})\b", "[REDACTED]", text)
-text = re.sub(r"(?P<name>\b(?:authorization|password|passwd|pwd|token|secret|api[_-]?key)\b)(?P<separator>\s*[:=]\s*)(?:Bearer\s+|Basic\s+)?(?:\"[^\"\r\n]*(?:\"|(?=\r?\n|\Z))|\x27[^\x27\r\n]*(?:\x27|(?=\r?\n|\Z))|[^\s,;]+)", lambda m: m.group("name") + m.group("separator") + "[REDACTED]", text, flags=re.I)
+text = re.sub(r"(?<![A-Za-z0-9_-])(?P<name>-{0,2}(?P<quote>[\x22\x27]?)(?:[A-Za-z0-9]+[_-])*(?:secret[_-]access[_-]key|private[_-]?key|api[_-]?key|authorization|password|passwd|pwd|token|secret)(?P=quote))(?![A-Za-z0-9_-])(?P<separator>\s*[:=]\s*)(?:Bearer\s+|Basic\s+)?(?:\"(?:\\[^\r\n]|[^\"\\\r\n])*(?:\"|\\?(?=\r?\n|\Z))|\x27(?:\\[^\r\n]|[^\x27\\\r\n])*(?:\x27|\\?(?=\r?\n|\Z))|[^\s,;]+)", lambda m: m.group("name") + m.group("separator") + "[REDACTED]", text, flags=re.I)
 text = re.sub(r"(?<![A-Za-z0-9_])(?:~[/\\]|/(?:Users|home|private|tmp|var|etc|opt|Volumes)/)[^\s`\"\x27<>]+", "[PATH]", text)
 text = re.sub(r"(?<![A-Za-z0-9_])(?:[A-Za-z]:\\|\\\\)[^\s`\"\x27<>]+", "[PATH]", text)
 text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]", "", text)
@@ -489,7 +490,7 @@ print_skill_descriptions() {
     echo "(unavailable: skill description parser)"
     return
   fi
-  out=$(collect_skill_descriptions_raw | sort -u | awk 'NR <= 101')
+  out=$(printf '%s\n' "$HEALTH_SKILL_DESCRIPTIONS" | sort -u | awk 'NR <= 101')
   if [ -n "$out" ]; then
     count=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
     printf '%s\n' "$out" | awk 'NR <= 100' | redact_health_stream
@@ -507,7 +508,7 @@ print_skill_description_summary() {
     echo "skill_descriptions: unavailable"
     return
   fi
-  out=$(collect_skill_descriptions_raw | sort -u)
+  out=$(printf '%s\n' "$HEALTH_SKILL_DESCRIPTIONS" | sort -u)
   if [ -z "$out" ]; then
     echo "skill_descriptions: 0"
     return
@@ -530,12 +531,12 @@ print_skill_description_summary() {
 
 skill_description_word_count() {
   local words
-  words=$(collect_skill_descriptions_raw | wc -w | tr -d ' ')
+  words=$(printf '%s\n' "$HEALTH_SKILL_DESCRIPTIONS" | wc -w | tr -d ' ')
   printf '%s\n' "${words:-0}"
 }
 
 skill_description_context_unit_count() {
-  collect_skill_descriptions_raw | context_units_from_stream
+  printf '%s\n' "$HEALTH_SKILL_DESCRIPTIONS" | context_units_from_stream
 }
 
 list_skill_files() {
@@ -820,27 +821,15 @@ PROJECT_FILES=$(count_project_files)
 CONTRIBUTORS=$(count_contributors)
 CI_WORKFLOWS=$(count_ci_workflows)
 
-echo "[1/12] Tier metrics..."
-echo "=== TIER METRICS ==="
+echo "[1/12] Project signals..."
+echo "=== PROJECT SIGNALS ==="
 echo "project_files: $PROJECT_FILES"
 echo "contributors: $CONTRIBUTORS"
 echo "ci_workflows:  $CI_WORKFLOWS"
 echo "skills:        $(count_local_skills)"
 echo "claude_md_lines: $(count_file_lines "$P/CLAUDE.md")"
 echo "collection_mode: $MODE"
-
-# Auto-detect tier if not passed as argument.
-# Matches SKILL.md definition: Simple = <500 files AND <=1 contributor AND no CI.
-if [ "$TIER" = "auto" ]; then
-  if [ "${PROJECT_FILES:-0}" -lt 500 ] && [ "${CONTRIBUTORS:-0}" -le 1 ] && [ "${CI_WORKFLOWS:-0}" -eq 0 ]; then
-    TIER="simple"
-  elif [ "${PROJECT_FILES:-0}" -lt 5000 ]; then
-    TIER="standard"
-  else
-    TIER="complex"
-  fi
-fi
-echo "detected_tier: $TIER"
+echo "audit_hint: $AUDIT_HINT"
 
 echo "[2/12] CLAUDE.md (global + local)..."
 echo "=== CLAUDE.md (global) ==="
@@ -861,6 +850,8 @@ echo "=== settings.local.json ==="
 print_settings_summary "$SETTINGS"
 
 echo "[4/12] Rules + skill descriptions..."
+# One per-run snapshot keeps inventory and both budget estimates consistent.
+HEALTH_SKILL_DESCRIPTIONS=$(collect_skill_descriptions_raw)
 echo "=== rules/ ==="
 if [ "$MODE" = "deep" ]; then
   print_rule_files
@@ -908,9 +899,9 @@ try:
         d = json.load(fh)
 except Exception:
     msg = '(unavailable: settings.local.json missing or malformed)'
-    print('=== hooks ===')
+    print('=== PROJECT-LOCAL hooks ===')
     print(msg)
-    print('=== MCP ===')
+    print('=== PROJECT-LOCAL MCP ===')
     print(msg)
     print('=== MCP FILESYSTEM ===')
     print(msg)
@@ -918,7 +909,7 @@ except Exception:
     print(msg)
     sys.exit(0)
 
-print('=== hooks ===')
+print('=== PROJECT-LOCAL hooks ===')
 hooks = d.get('hooks', {})
 if isinstance(hooks, dict):
     names = sorted(hooks.keys())
@@ -943,7 +934,7 @@ if isinstance(hooks, dict):
 else:
     print('hook_events: (unknown format)')
 
-print('=== MCP ===')
+print('=== PROJECT-LOCAL MCP ===')
 servers = d.get('mcpServers', d.get('enabledMcpjsonServers', {}))
 names = list(servers.keys()) if isinstance(servers, dict) else list(servers)
 count = len(names)
@@ -951,8 +942,7 @@ safe_names = [re.sub(r'[^A-Za-z0-9_.@+-]+', '_', str(name))[:80] for name in nam
 print(f'servers({count}):', ', '.join(safe_names))
 if count > 20:
     print('server_names_truncated:', count - 20)
-est = count * 25 * 200
-print(f'est_tokens: ~{est} ({round(est/2000)}% of 200K)')
+print('coverage: project settings only; see RUNTIME CONFIGURATION for global sources')
 
 print('=== MCP FILESYSTEM ===')
 if isinstance(servers, list):
@@ -982,9 +972,9 @@ print('=== allowedTools count ===')
 print(len(d.get('permissions', {}).get('allow', [])))
 PYEOF
 else
-  echo "=== hooks ==="
+  echo "=== PROJECT-LOCAL hooks ==="
   echo "(unavailable)"
-  echo "=== MCP ==="
+  echo "=== PROJECT-LOCAL MCP ==="
   echo "(unavailable)"
   echo "=== MCP FILESYSTEM ==="
   echo "(unavailable)"
@@ -1041,7 +1031,17 @@ fi
 
 echo "[8/12] Conversation signals + extract..."
 CONVERSATION_AUDIT_SCRIPT="$(resolve_health_helper conversation_audit.py || true)"
-if [ -n "$CONVERSATION_AUDIT_SCRIPT" ] && [ -n "$PYTHON_BIN" ]; then
+if [ "$AUDIT_HINT" = "instructions" ]; then
+  # Out of scope, not unavailable: an instruction-and-config audit does not need
+  # session history, and calling a deliberate skip a coverage gap would train the
+  # reader to ignore real ones.
+  echo "=== CONVERSATION COVERAGE ==="
+  echo "(out of scope: instruction and config audit, session history not read)"
+  echo "=== CONVERSATION FILES ==="
+  echo "(out of scope)"
+  echo "=== CONVERSATION SIGNALS ==="
+  echo "(out of scope)"
+elif [ -n "$CONVERSATION_AUDIT_SCRIPT" ] && [ -n "$PYTHON_BIN" ]; then
   "$PYTHON_BIN" -I "$CONVERSATION_AUDIT_SCRIPT" "$CONVO_DIR" "$MODE" \
     --codex-root "$HOME/.codex/sessions" --project-root "$P"
 else
@@ -1057,7 +1057,7 @@ else
   echo "(unavailable)"
 fi
 
-if [ "$TIER" != "simple" ] && [ "$MODE" = "deep" ]; then
+if [ "$MODE" = "deep" ]; then
 echo "=== MCP ACCESS DENIALS ==="
 print_mcp_access_denials
 else
@@ -1163,7 +1163,7 @@ done < <(skill_roots)
 [ "$_PROVENANCE_SHOWN" -le 100 ] || echo "skill_provenance_truncated: $((_PROVENANCE_SHOWN - 100))"
 
 echo "[12/12] Full skill security scan..."
-if [ "$TIER" != "simple" ] && [ "$MODE" = "deep" ]; then
+if [ "$MODE" = "deep" ]; then
 echo "=== SKILL SECURITY SCAN ==="
 _SKILL_SCAN_FILES=()
 while IFS= read -r f; do

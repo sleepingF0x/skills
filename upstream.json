@@ -19,10 +19,12 @@
         "grilling",
         "handoff",
         "implement",
+        "implement-spec",
         "improve-codebase-architecture",
+        "pr",
         "prototype",
         "research",
-        "resolving-merge-conflicts",
+        "retro",
         "setup-matt-pocock-skills",
         "tdd",
         "teach",
@@ -105,9 +107,54 @@
         "excalidraw-skill"
       ],
       "note": "原 Agents365-ai/excalidraw-skill 独立仓库已并入这个 monorepo，路径挪到 plugins/excalidraw/skills 下。"
+    },
+    {
+      "repo": "cloudflare/skills",
+      "ref": "HEAD",
+      "roots": [
+        "skills"
+      ],
+      "managed": [
+        "agents-sdk",
+        "basin",
+        "cf-cli",
+        "cloudflare",
+        "cloudflare-email-service",
+        "cloudflare-one",
+        "cloudflare-one-migrations",
+        "durable-objects",
+        "gateway-workers",
+        "k2",
+        "nextjs-on-cloudflare",
+        "sandbox-migrate-to-next",
+        "sandbox-next",
+        "sandbox-stable",
+        "turnstile-spin",
+        "web-perf",
+        "workers-best-practices",
+        "workers-profiling",
+        "wrangler"
+      ],
+      "note": "接管本机已安装的官方技能；纳管前已核对全部文件及可执行模式与上游一致。后续由本脚本同步、裁剪和维护三端软链接。"
     }
   ],
   "untracked": {
+    "dingtalk-aicard": "本机已有的钉钉多技能包，未配置受管上游；保留本地版本。",
+    "dingtalk-aisearch": "本机已有的钉钉多技能包，未配置受管上游；保留本地版本。",
+    "dingtalk-aitable": "本机已有的钉钉多技能包，未配置受管上游；保留本地版本。",
+    "dingtalk-calendar": "本机已有的钉钉多技能包，未配置受管上游；保留本地版本。",
+    "dingtalk-chat": "本机已有的钉钉多技能包，未配置受管上游；保留本地版本。",
+    "dingtalk-contact": "本机已有的钉钉多技能包，未配置受管上游；保留本地版本。",
+    "dingtalk-doc": "本机已有的钉钉多技能包，未配置受管上游；保留本地版本。",
+    "dingtalk-drive": "本机已有的钉钉多技能包，未配置受管上游；保留本地版本。",
+    "dingtalk-event": "本机已有的钉钉多技能包，未配置受管上游；保留本地版本。",
+    "dingtalk-mail": "本机已有的钉钉多技能包，未配置受管上游；保留本地版本。",
+    "dingtalk-minutes": "本机已有的钉钉多技能包，未配置受管上游；保留本地版本。",
+    "dingtalk-misc": "本机已有的钉钉多技能包，未配置受管上游；保留本地版本。",
+    "dingtalk-shared": "本机已有的钉钉多技能包，未配置受管上游；保留本地版本。",
+    "dingtalk-tag": "本机已有的钉钉多技能包，未配置受管上游；保留本地版本。",
+    "dingtalk-todo": "本机已有的钉钉多技能包，未配置受管上游；保留本地版本。",
+    "dingtalk-wiki": "本机已有的钉钉多技能包，未配置受管上游；保留本地版本。",
     "implement-codex": "自建",
     "accept-issue": "自建",
     "land-issue": "自建",
@@ -124,6 +171,10 @@
         "implement-codex"
       ],
       "note": "implement-codex 是让 Claude 委派给 Codex 的。Codex 自己拿到它就成了自己委派自己。"
+    },
+    "pi": {
+      "dir": "~/.pi/agent/skills",
+      "exclude": []
     }
   }
 }

@@ -21,13 +21,16 @@ from shared import (
     COOL_GRAY_BLOCKLIST,
     HTML_TEMPLATES,
     ROOT,
+    SITE_ROOT,
     SCREEN_TEMPLATES,
     TEMPLATES,
     TOKENS_FILE,
     iter_template_files,
     rel_to_root,
+    resolve_input,
 )
 from tokens import ROOT_BLOCK, parse_root_vars
+from diagram_geometry import scan_geometry
 
 # Font-stack vars legitimately differ between a base template and its locale
 # variants (-en, -ko); every other :root var must match across the pair.
@@ -38,15 +41,22 @@ RGBA_VAR_DEF = re.compile(r"--([\w-]+)\s*:\s*[^;]*rgba\s*\(", re.IGNORECASE)
 BG_VAR_USE = re.compile(r"background(?:-color)?\s*:\s*[^;]*var\s*\(\s*--([\w-]+)", re.IGNORECASE)
 RGBA_BORDER_DIRECT = re.compile(r"border(?:-\w+)?\s*:\s*[^;]*rgba\s*\(", re.IGNORECASE)
 BORDER_VAR_USE = re.compile(r"border(?:-\w+)?\s*:\s*[^;]*var\s*\(\s*--([\w-]+)", re.IGNORECASE)
-LINE_HEIGHT_LOOSE = re.compile(r"line-height\s*:\s*1\.[6-9]\d*", re.IGNORECASE)
+LINE_HEIGHT_VALUE = re.compile(
+    r"line-height\s*:\s*([0-9]*\.?[0-9]+)(?![\w.%])",
+    re.IGNORECASE,
+)
 UNICODE_ARROW = re.compile(r"→")  # U+2192; should not appear in EN template body
-HEX_ANY = re.compile(r"#[0-9a-fA-F]{3,6}\b")
+HEX_ANY = re.compile(
+    r"#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})"
+    r"(?![0-9a-fA-F])"
+)
 # Thin closed border: border shorthand (not single-side) with sub-1pt width -- pitfall #2
 THIN_CLOSED_BORDER = re.compile(
-    r"border(?!-(?:left|right|top|bottom))\s*:\s*[^;]*0\.\d+pt",
+    r"border(?!-(?:left|right|top|bottom))\s*:\s*[^;{}]*(?<![\d.])0\.\d+pt",
     re.IGNORECASE,
 )
 BORDER_RADIUS_PROP = re.compile(r"border-radius\s*:", re.IGNORECASE)
+RULE_BODY_RE = re.compile(r"\{([^{}]*)\}")
 CSS_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.DOTALL)
 SVG_BLOCK_RE = re.compile(r"<svg\b.*?</svg>", re.DOTALL | re.IGNORECASE)
 
@@ -80,33 +90,66 @@ def _strip_css_block_comments(text: str) -> str:
     return CSS_BLOCK_COMMENT_RE.sub(repl, text)
 
 
-def scan_file(path: Path) -> list[Finding]:
-    return scan_text(path.read_text(encoding="utf-8", errors="replace"), path)
+def scan_file(path: Path, screen: bool | None = None) -> list[Finding]:
+    return scan_text(path.read_text(encoding="utf-8", errors="replace"), path, screen=screen)
 
 
-def scan_text(raw_text: str, path: Path, line_offset: int = 0) -> list[Finding]:
+def scan_text(raw_text: str, path: Path, line_offset: int = 0,
+              screen: bool | None = None) -> list[Finding]:
     """Run the per-line and per-block rules over `raw_text`.
 
     Split out of scan_file so a CSS snippet that lives inside a Markdown fence
     can be scanned with the same rules as a template, reporting line numbers
-    back in the enclosing document via `line_offset`.
+    back in the enclosing document via `line_offset`. `screen` says whether
+    the file is a browser-only page; None falls back to the template file name.
     """
-    findings: list[Finding] = []
+    findings = [Finding(path, line_offset + line, "diagram-geometry", message)
+                for line, message in scan_geometry(raw_text)]
     text = _strip_css_block_comments(raw_text)
     lines = text.splitlines()
-
-    # Pass 1: collect variable names that hold rgba(...) so the tag-background
-    # bug can be detected through one level of indirection.
-    rgba_vars: set[str] = set()
-    for raw in lines:
-        m = RGBA_VAR_DEF.search(raw)
-        if m:
-            rgba_vars.add(m.group(1))
-
     is_en = path.name.endswith("-en.html")
-    # Screen-only templates (landing pages) never go through WeasyPrint, so the
-    # Mermaid-unsafe-SVG rule does not apply to them.
-    is_screen = path.name in set(SCREEN_TEMPLATES.values())
+    # Screen-only landing pages do not pass through WeasyPrint. Their browser
+    # gradients may use alpha, and CJK screen copy has a documented 1.65
+    # line-height ceiling instead of the print ceiling of 1.55.
+    is_screen = path.name in set(SCREEN_TEMPLATES.values()) if screen is None else screen
+
+    def line_for(offset: int) -> int:
+        return line_offset + text.count("\n", 0, offset) + 1
+
+    # Pass 1: scan declarations across the whole stylesheet. CSS may wrap a
+    # declaration across lines or place several custom properties on one line;
+    # a per-line `search` silently missed both shapes.
+    rgba_vars = {m.group(1) for m in RGBA_VAR_DEF.finditer(text)}
+    for match in (() if is_screen else RGBA_BG_DIRECT.finditer(text)):
+        findings.append(Finding(
+            path,
+            line_for(match.start()),
+            "rgba-background",
+            "rgba() used directly on background (tag double-rectangle bug)",
+        ))
+    for match in (() if is_screen else BG_VAR_USE.finditer(text)):
+        if match.group(1) in rgba_vars:
+            findings.append(Finding(
+                path,
+                line_for(match.start()),
+                "rgba-background",
+                f"background: var(--{match.group(1)}) resolves to rgba() (tag double-rectangle bug)",
+            ))
+    for match in (() if is_screen else RGBA_BORDER_DIRECT.finditer(text)):
+        findings.append(Finding(
+            path,
+            line_for(match.start()),
+            "rgba-border",
+            "rgba() used on border (violates solid-color invariant)",
+        ))
+    for match in (() if is_screen else BORDER_VAR_USE.finditer(text)):
+        if match.group(1) in rgba_vars:
+            findings.append(Finding(
+                path,
+                line_for(match.start()),
+                "rgba-border",
+                f"border: var(--{match.group(1)}) resolves to rgba() (solid-color invariant)",
+            ))
 
     # Pass 2: per-line rule checks
     is_python = path.suffix == ".py"
@@ -124,24 +167,6 @@ def scan_text(raw_text: str, path: Path, line_offset: int = 0) -> list[Finding]:
         if is_python and line.startswith("#"):
             continue
 
-        if RGBA_BG_DIRECT.search(raw):
-            findings.append(Finding(path, line_offset + i, "rgba-background",
-                                    "rgba() used directly on background (tag double-rectangle bug)"))
-
-        bg_var = BG_VAR_USE.search(raw)
-        if bg_var and bg_var.group(1) in rgba_vars:
-            findings.append(Finding(path, line_offset + i, "rgba-background",
-                                    f"background: var(--{bg_var.group(1)}) resolves to rgba() (tag double-rectangle bug)"))
-
-        if RGBA_BORDER_DIRECT.search(raw):
-            findings.append(Finding(path, line_offset + i, "rgba-border",
-                                    "rgba() used on border (violates solid-color invariant)"))
-
-        border_var = BORDER_VAR_USE.search(raw)
-        if border_var and border_var.group(1) in rgba_vars:
-            findings.append(Finding(path, line_offset + i, "rgba-border",
-                                    f"border: var(--{border_var.group(1)}) resolves to rgba() (solid-color invariant)"))
-
         if is_en and UNICODE_ARROW.search(raw):
             # skip CSS comment lines (/* ... */) and the arrow-in-CSS-content patterns
             stripped = raw.lstrip()
@@ -149,10 +174,11 @@ def scan_text(raw_text: str, path: Path, line_offset: int = 0) -> list[Finding]:
                 findings.append(Finding(path, line_offset + i, "arrow-unicode-in-en",
                                         "to (U+2192) in English template; use 'to' or '->' per patterns Section 2"))
 
-        m = LINE_HEIGHT_LOOSE.search(raw)
-        if m:
-            findings.append(Finding(path, line_offset + i, "line-height-too-loose",
-                                    f"{m.group(0)} exceeds 1.55 ceiling"))
+        for match in LINE_HEIGHT_VALUE.finditer(raw):
+            ceiling = 1.65 if is_screen and not is_en else 1.55
+            if float(match.group(1)) > ceiling:
+                findings.append(Finding(path, line_offset + i, "line-height-too-loose",
+                                        f"{match.group(0)} exceeds {ceiling:.2f} ceiling"))
 
         for hex_match in HEX_ANY.finditer(raw):
             h = hex_match.group(0).lower()
@@ -167,31 +193,20 @@ def scan_text(raw_text: str, path: Path, line_offset: int = 0) -> list[Finding]:
                         "un-normalized Mermaid SVG (run scripts/mermaid_normalize.py before embedding)"))
 
     # Pass 3: thin-border-radius block scan (pitfall #2 double-ring).
-    # For each thin closed border line, scan backward to the block open and
-    # forward to the block close, checking for border-radius in the same block.
-    for i, raw in enumerate(lines):
-        if not THIN_CLOSED_BORDER.search(raw):
+    # Judge each rule block as a whole, so a one-line rule or a radius on the
+    # opening-brace line is seen the same as the expanded multi-line form.
+    # Match bodies only: a selector group spanning the whole HTML makes the
+    # scan quadratic on long brace-free text.
+    raw_lines = raw_text.split("\n")
+    for block in RULE_BODY_RE.finditer(text):
+        body = block.group(1)
+        if not BORDER_RADIUS_PROP.search(body):
             continue
-        if "skip-thin-border-radius" in raw:
-            continue
-        found = False
-        # Scan backward; stop at { or } (entering/leaving a block).
-        for j in range(i - 1, max(0, i - 6) - 1, -1):
-            if "{" in lines[j] or "}" in lines[j]:
-                break
-            if BORDER_RADIUS_PROP.search(lines[j]):
-                found = True
-                break
-        # Scan forward; stop at } (leaving the block).
-        if not found:
-            for j in range(i + 1, min(len(lines), i + 6)):
-                if "}" in lines[j]:
-                    break
-                if BORDER_RADIUS_PROP.search(lines[j]):
-                    found = True
-                    break
-        if found:
-            findings.append(Finding(path, line_offset + i + 1, "thin-border-radius",
+        for border in THIN_CLOSED_BORDER.finditer(body):
+            line = text.count("\n", 0, block.start(1) + border.start()) + 1
+            if "skip-thin-border-radius" in raw_lines[line - 1]:
+                continue
+            findings.append(Finding(path, line_offset + line, "thin-border-radius",
                 "thin border (<1pt) with border-radius -- pitfall #2 double-ring risk"))
     return findings
 
@@ -298,7 +313,11 @@ def _off_palette_findings(
     return findings
 
 
-ROOT_TOKEN_DEF = re.compile(r"(--[\w-]+)\s*:\s*(#[0-9a-fA-F]{3,6})\b")
+ROOT_TOKEN_DEF = re.compile(
+    r"(--[\w-]+)\s*:\s*"
+    r"(#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3}))"
+    r"(?![0-9a-fA-F])"
+)
 
 
 def _root_token_findings(path: Path, allowed: set[str]) -> list[Finding]:
@@ -347,17 +366,20 @@ def check_off_palette(verbose: bool = False) -> int:
             print(f"scanned {p.relative_to(ROOT)}: {len(file_findings)} off-palette finding(s)")
 
     # Demo HTML inherits template CSS by copy, so a token change leaves stale
-    # hexes behind in assets/demos with no guard: that is exactly how demos
+    # hexes behind in site/assets/demos with no guard: that is exactly how demos
     # kept shipping old colors after palette edits. Scan property values only
     # (demos carry local :root copies on purpose). Pure white is sanctioned:
     # deliberate white-paper print variants document it in their header.
     demo_allowed = allowed | {"#ffffff", "#fff"}
-    demo_targets = sorted((ROOT / "assets" / "demos").glob("*.html"))
+    demo_targets = sorted((SITE_ROOT / "assets" / "demos").glob("*.html")) if SITE_ROOT else []
+    if SITE_ROOT is not None and not demo_targets:
+        print("ERROR: no demo HTML found under site/assets/demos (incomplete repository scan)")
+        return 2
     for p in demo_targets:
         file_findings = _off_palette_findings(p, demo_allowed)
         findings.extend(file_findings)
         if verbose:
-            print(f"scanned {p.relative_to(ROOT)}: {len(file_findings)} off-palette finding(s)")
+            print(f"scanned {p.relative_to(SITE_ROOT.parent)}: {len(file_findings)} off-palette finding(s)")
 
     if not findings:
         print(f"OK: no off-palette colors across {len(targets)} template(s) "
@@ -366,7 +388,8 @@ def check_off_palette(verbose: bool = False) -> int:
 
     print(f"\nERROR: [off-palette] {len(findings)}")
     for f in findings:
-        print(f"  {f.file.relative_to(ROOT)}:{f.line}  {f.excerpt}")
+        base = SITE_ROOT.parent if SITE_ROOT and f.file.is_relative_to(SITE_ROOT) else ROOT
+        print(f"  {f.file.relative_to(base)}:{f.line}  {f.excerpt}")
     return 1
 
 
@@ -423,7 +446,8 @@ def _emphasis_container_findings(path: Path) -> list[Finding]:
     """Flag a document that fills its emphasis blocks in more than one color.
 
     A template reuses one fill across every raised block (long-doc runs three
-    components off `--ivory`; resume runs two off `--brand-tint`), so the page
+    components off `--ivory`; resume runs `.team-culture` and `.os-highlight`
+    off the same `--ivory`), so the page
     reads as one system used repeatedly. Drift looks different: a generated
     document invents a white rounded card for the question, then a tinted
     rounded block for the caveat, and the page now carries two unrelated
@@ -441,7 +465,9 @@ def _emphasis_container_findings(path: Path) -> list[Finding]:
     for match in CSS_RULE_RE.finditer(css):
         selector = " ".join(match.group(1).split())
         body = match.group(2)
-        if any(token in selector.lower() for token in EMPHASIS_EXEMPT_SELECTORS):
+        if any(name == token or name.startswith(token + "-")
+               for name in re.findall(r"[\w-]+", selector.lower())
+               for token in EMPHASIS_EXEMPT_SELECTORS):
             continue
         if INLINE_OR_FLOAT_DECL.search(body):
             continue
@@ -466,7 +492,7 @@ def _emphasis_container_findings(path: Path) -> list[Finding]:
                     "a page raises passages one way, reused, not a new container per idea")]
 
 
-def check_style(paths: list[str]) -> int:
+def check_style(paths: list[str], screen: bool | None = None) -> int:
     """CLI: --check-style filled.html [more.html ...]
 
     Applies the template rule set to a produced document. Same rules, other end
@@ -481,16 +507,14 @@ def check_style(paths: list[str]) -> int:
     failures = 0
     scanned = 0
     for raw in files:
-        path = Path(raw)
-        if not path.is_absolute():
-            path = ROOT / path
+        path = resolve_input(raw)
         if not path.exists():
             print(f"ERROR: {raw}: file not found")
             failures += 1
             continue
         scanned += 1
         rel = rel_to_root(path)
-        findings = scan_file(path)
+        findings = scan_file(path, screen=screen)
         findings.extend(_off_palette_findings(path, allowed))
         findings.extend(_emphasis_container_findings(path))
         if not findings:
@@ -577,7 +601,7 @@ def check_docs(paths: list[str]) -> int:
     """
     targets = [p for p in paths if not p.startswith("-")]
     if not targets:
-        candidates = [ROOT / "CHEATSHEET.md", ROOT / "SKILL.md", ROOT / "AGENTS.md"]
+        candidates = [ROOT / "CHEATSHEET.md", ROOT / "SKILL.md"]
         candidates += sorted((ROOT / "references").glob("*.md"))
         targets = [str(p) for p in candidates if p.exists()]
 
@@ -591,9 +615,7 @@ def check_docs(paths: list[str]) -> int:
     failures = 0
     scanned = 0
     for raw_path in targets:
-        path = Path(raw_path)
-        if not path.is_absolute():
-            path = ROOT / path
+        path = resolve_input(raw_path)
         if not path.exists():
             print(f"ERROR: {raw_path}: file not found")
             failures += 1
@@ -659,12 +681,12 @@ def _pair_names() -> list[tuple[str, str]]:
     return pairs
 
 
-def _source_for(name: str) -> tuple[Path, Path]:
-    """Return (source path, directory) for a template name across registries."""
+def _source_for(name: str) -> Path:
+    """Return the source path for a template name across registries."""
     if name in HTML_TEMPLATES:
-        return TEMPLATES / HTML_TEMPLATES[name].source, TEMPLATES
+        return TEMPLATES / HTML_TEMPLATES[name].source
     if name in SCREEN_TEMPLATES:
-        return TEMPLATES / SCREEN_TEMPLATES[name], TEMPLATES
+        return TEMPLATES / SCREEN_TEMPLATES[name]
     raise KeyError(f"unknown template name: {name}")
 
 
@@ -683,8 +705,8 @@ def check_cross_template_consistency(verbose: bool = False) -> int:
 
     for base_name, variant_name in pairs:
         try:
-            base_path, _ = _source_for(base_name)
-            variant_path, _ = _source_for(variant_name)
+            base_path = _source_for(base_name)
+            variant_path = _source_for(variant_name)
         except KeyError:
             continue
         if not base_path.exists() or not variant_path.exists():
