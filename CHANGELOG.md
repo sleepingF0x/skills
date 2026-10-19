@@ -2,6 +2,74 @@
 
 记录会影响使用方式的更新。条目按本仓库完成同步的日期排列，说明新入口、所需输入、预期结果和迁移方法；仅有措辞调整的更新不逐文件展开。
 
+## 2026-10-19：read 增加可选 DeepSeek，Kami 更新官网配色和字体规则
+
+本次同步 `read` 的 4 个文件和 `kami` 的 7 个文件。Matt 的 engineering、productivity 仍为 27 个技能，没有新增、改名或弃用；受管来源仍为 7 个仓库、58 个技能，另保留 20 个本地技能，来源清单无需调整。
+
+### read：按需启用 DeepSeek 搜索与网页提取
+
+新增 `scripts/deepseek.py`，使用 Python 3 标准库。先在运行环境中配置 `DEEPSEEK_API_KEY`，再使用以下命令；查询词或 URL 会发送给 DeepSeek，可能产生 API 费用，因此仅用于已同意发送的公开内容。
+
+```bash
+READ_SCRIPT_DIR="$HOME/.agents/skills/read/scripts"
+python3 "$READ_SCRIPT_DIR/deepseek.py" search "site:python.org asyncio" --count 5
+```
+
+`search` 接受 1 至 128 个字符的查询，返回带 URL、站点、日期和评分的编号结果；加 `--content` 请求正文，加 `--json` 保留原始响应。摘要可能是索引时的快照，引用事实前仍需读取原页。`fetch` 输出来源 URL 和提取的正文。未设置密钥时返回退出码 2，不发送请求；HTTP 或网络失败返回 1。
+
+直接调用 `deepseek.py fetch` 时，空正文也可能记录 `status=ok` 并返回 0，因此自动化流程必须额外检查正文。以下示例请求 JSON，只在 `content` 是非空字符串时输出正文；JSON 格式错误或空正文都会使整条命令失败。服务端响应字段类型异常时，helper 还可能直接抛出异常，不能假定每次失败都有结构化日志。
+
+```bash
+set -o pipefail
+python3 "$READ_SCRIPT_DIR/deepseek.py" fetch "https://docs.python.org/3/library/asyncio.html" --json |
+  python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+body = data.get("content") if isinstance(data, dict) else None
+if not isinstance(body, str) or not body.strip():
+    sys.exit("DeepSeek did not return a non-empty body")
+print(body.strip())
+'
+```
+
+`fetch.sh URL` 继续只从源站抓取并在本地提取。显式选择 `--use-proxy` 后，本地提取失败且存在密钥时，会先试 DeepSeek，再尝试原有的 defuddle 和 Jina。以前使用该选项的环境若已经设置密钥，现在会增加这个调用；只想沿用原有第三方提取顺序时，可仅在这条命令中移除密钥：
+
+```bash
+env -u DEEPSEEK_API_KEY bash "$READ_SCRIPT_DIR/fetch.sh" --use-proxy "https://example.com/"
+```
+
+在 Codex 中可说 `$read 使用 DeepSeek 搜索公开的 Python asyncio 官方资料，先列来源，再读取与当前问题有关的页面`。Claude Code 用 `/read`，Pi 用 `/skill:read`。此更新不自动配置密钥，也不授权把内部或需登录的链接发送给第三方。完整命令见 [读取方法](skills/read/references/read-methods.md)。
+
+### Kami：官网采用产品主色，按渲染场景选择字体
+
+Kami 版本号仍为 `1.18.0`。新版官网流程优先从产品图标、界面或品牌素材中确定主色；缺少明确主色时展示候选色让用户选择，无偏好时才保留墨蓝。迁移已有官网时一起调整 `--brand`、`--brand-light`、`--brand-tint`，保留暖色背景和灰阶，并检查正文链接及按钮文字的 4.5:1 对比度。新增 `--line: #d8d5c8` 用于屏幕界面的细边框，字号使用统一档位，垂直间距按 4 的倍数整理。
+
+中文 PDF 和内嵌 SVG 继续优先放中文字体；自托管、且用 `unicode-range` 限定中文字符范围的网站，则按新版规则把西文字体放在中文子集之前。商业产品官网按新版要求将模板默认的 TsangerJinKai02 换成 Source Han Serif，并自托管 WOFF2 子集。子集应覆盖正文及会显示在页面上的属性文字，文案变化后重新生成并核对缺字。
+
+准备可用于网站的源字体 `Source.otf`、包含全部所需字符的 `chars.txt`，并确保 FontTools 的 `pyftsubset` 支持 WOFF2，然后执行：
+
+```bash
+pyftsubset Source.otf --text-file=chars.txt --flavor=woff2 --output-file=serif-sc-regular.woff2
+```
+
+在 Codex 中可说 `$kami 按现有产品主色制作中文商业产品官网，检查品牌色对比度，使用 Source Han Serif 的自托管中文子集，交付可部署的 HTML 和字体资源`。Claude Code 用 `/kami`，Pi 用 `/skill:kami`。这里只同步模板和规则，没有改动任何现有网站或安装字体。完整迁移规则见 [官网设计说明](skills/kami/references/design.md)。
+
+### 上游版本
+
+| 上游 | 本次核对的提交 | 变化 |
+|---|---|---|
+| mattpocock/skills | [49dd158](https://github.com/mattpocock/skills/commit/49dd158d1076134a641b33efb035946536778336) | 无变化 |
+| tw93/Waza | [840f926](https://github.com/tw93/Waza/commit/840f926af48c98e0b36a3a64658a9ddc4cf7e716) | `read` 新增可选 DeepSeek 搜索和提取 |
+| tw93/kami | [0b94336](https://github.com/tw93/kami/commit/0b9433633616318349d3da87c06e690a4d8f5b25) | 官网配色、字号和字体规则 |
+
+### 验证记录
+
+7 个上游再次比对通过，更新内容与表中提交的文件和可执行模式一致；其余 76 个技能及原有运行缓存均保留，来源清单没有变化。Codex、Claude、Pi 的 77、78、78 个仓库链接均有效，包含隐藏目录的扫描没有断链，已清理的旧入口没有重新出现。
+
+从暂存 Git 树导出的隔离安装通过 47 项同步测试，三端链接安装完整，Kami 的颜色检查覆盖 49 个模板及 Mermaid 主题。当前安装和隔离安装均由 Pi 加载全部 78 个技能，没有缺失、重复或诊断信息；新增 Python、修改后的 Shell 和 JSON 通过语法检查。
+
+DeepSeek 离线测试覆盖缺密钥、无效查询、正常搜索和提取、HTTP 与网络失败；模拟回退链确认默认模式不调用第三方，显式代理每轮最多调用一次 DeepSeek。文档中的正文校验示例通过有效正文和各类空值、异常类型、无效 JSON 的正反例，`pipefail` 能保留上游命令的失败状态。此次没有请求真实 DeepSeek 服务，没有生成网站、字体子集或 PDF，在线 API 可用性及实际页面渲染未据此验证。
+
 ## 2026-10-16：启用每日维护，纳管 Cloudflare，Kami 升至 1.18.0
 
 本次同步 `check`、`health`、`herdr`、`kami` 的 43 个文件，并将本机已有的 19 个 Cloudflare 官方技能纳入 `upstream.json`。现在共维护 7 个上游、58 个受管技能，另保留 20 个自建或手工维护技能。Matt 仍为 27 个，本次没有变化，也没有新增弃用项需要移除。
