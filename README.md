@@ -8,32 +8,20 @@
 
 较大更新及更新后的具体用法见 [CHANGELOG.md](CHANGELOG.md)，包括 `read` 的 DeepSeek 可选入口，以及 Kami 官网布局与设计规则的迁移说明。
 
-## 自建
-
-这三个是我自己写的，其余都是第三方的。
-
-| skill | 作用 |
-|---|---|
-| `implement-codex` | 实现一个 issue：Claude 钉 spec、选推理档、委派 Codex 写代码、自己验证和复审。改自 Matt Pocock 的 `implement` |
-| `accept-issue` | 验收已实现的 issue，必须在新会话里跑：Codex 当法官逐条裁决留证据，Claude 当书记员只查形式 |
-| `land-issue` | 收尾已验收的 issue：preflight、push、留摘要、close |
-
 ## 第三方
 
-下面 59 个不是我的作品，原样收录只是为了多机同步。版权归各自作者，随各自的许可证分发。要用请去上游仓库，那里才有更新。有上游的一律跟上游走：上游改了就同步，已确认删除或弃用的技能移除旧入口，改名则迁移到新入口。
+下面 58 个不是我的作品，原样收录只是为了多机同步。版权归各自作者，随各自的许可证分发。要用请去上游仓库，那里才有更新。有上游的一律跟上游走：上游改了就同步，已确认删除或弃用的技能移除旧入口，改名则迁移到新入口。依赖特定服务版本的 skill 固定到对应发布提交，随服务一起升级。
 
 | 来源 | skill |
 |---|---|
 | [mattpocock/skills](https://github.com/mattpocock/skills)（27） | `ask-matt` `code-review` `codebase-design` `diagnosing-bugs` `domain-modeling` `grill-me` `grill-with-docs` `grilling` `handoff` `implement` `implement-spec` `improve-codebase-architecture` `pr` `prototype` `research` `retro` `setup-matt-pocock-skills` `tdd` `teach` `to-questionnaire` `to-spec` `to-tickets` `triage` `wait-what` `wayfinder` `wizard` `writing-for-agents` |
 | [tw93/Waza](https://github.com/tw93/Waza)（8） | `check` `health` `hunt` `learn` `read` `think` `ui` `write` |
 | [tw93/kami](https://github.com/tw93/kami)（1） | `kami` |
-| [blader/humanizer](https://github.com/blader/humanizer)（1，MIT） | `humanizer-zh`，歸藏的中文译本 |
+| [morluto/rea](https://github.com/morluto/rea)（1，固定 REA 6.7.0 发布提交） | `reverse-engineer-anything` |
 | [microsoft/playwright-cli](https://github.com/microsoft/playwright-cli)（1，Apache-2.0） | `playwright-cli`，附 `LICENSE.txt` 和 `NOTICE.txt` |
-| [herdrdev/herdr](https://github.com/herdrdev/herdr)（1，Apache-2.0） | `herdr` |
 | [Agents365-ai/365-skills](https://github.com/Agents365-ai/365-skills)（1） | `excalidraw-skill` |
 | [cloudflare/skills](https://github.com/cloudflare/skills)（19） | `agents-sdk` `basin` `cf-cli` `cloudflare` `cloudflare-email-service` `cloudflare-one` `cloudflare-one-migrations` `durable-objects` `gateway-workers` `k2` `nextjs-on-cloudflare` `sandbox-migrate-to-next` `sandbox-next` `sandbox-stable` `turnstile-spin` `web-perf` `workers-best-practices` `workers-profiling` `wrangler` |
 
-另外保留本机安装的 16 个 `dingtalk-*` 技能，均在 `upstream.json` 的 `untracked` 中登记，由本脚本维护三端软链接，内容不跟随上述上游更新。旧的 `dws` 技能目录已不存在；泛称钉钉操作时用 `dingtalk-shared`，明确产品时用对应的 `dingtalk-*` 技能。迁移示例见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 用法
 
@@ -79,6 +67,41 @@ python3 scripts/sync-skills.py --link
 未提交、未推送和被 Git 忽略的文件不会随仓库同步。拉取遇到本地改动或分叉时，先处理 Git 状态，不要用强制覆盖。`--link` 可重复执行，已有正确链接保持原样。
 
 `git pull` 同步已经确认的仓库版本；`--apply` 则查询并升级到上游版本。想让多台机器保持一致，在一台机器升级、检查并提交推送，再让其他机器拉取即可。
+
+### REA：每台机器单独安装运行时与 MCP
+
+`reverse-engineer-anything` 用于分析应用制品、JavaScript / Electron、二进制和指定的运行时行为。skill 随 Git 同步；REA CLI 和客户端 MCP 配置需要在每台机器单独安装。当前 skill 固定在 REA 6.7.0 发布提交 `27dc42d10249f0410904a75c0997842eb03b931c`，避免技能与服务接口错配。
+
+使用满足 `rea-agents@6.7.0` engines 要求的 Node.js（本机已验证 Node 24.13.0），在新机器建立 skill 软链接后执行：
+
+```bash
+npm install --global rea-agents@6.7.0
+rea setup --client codex --client claude_code --skill=false --dry-run --json
+# 核对配置路径和备份后应用；只保留实际使用的 --client
+rea setup --client codex --client claude_code --skill=false --yes
+rea doctor --client codex --client claude_code --json
+rea mcp doctor --json
+```
+
+保留 `--skill=false`，让本仓库管理 skill 及软链接。REA 自带的 skill 身份检查不接受软链接，可能报告 unmanaged；用本仓库的上游内容比对和链接检查核验该部分。GitHub 发布源码与 npm 内置技能的工作流一致；npm 打包额外写入工具数，并把示例中的 `@latest` 固定为 `@6.7.0`。本仓库保留 GitHub 原文；使用时优先调用已安装的 `rea`，临时下载时使用 `npx -y rea-agents@6.7.0`。
+
+配置完成后重启对应客户端，再确认 REA 工具出现在新会话中。例如：`用 reverse-engineer-anything 分析 /绝对路径/app，说明入口与模块关系，并引用制品证据。` 无 MCP 时可直接运行 `rea analyze-javascript-application /绝对路径/app --json`，输出分析 Evidence。JavaScript 静态分析无需额外原生引擎；原生反编译需要另行配置 Hopper / Ghidra / IDA 等，Android 路线需要 JADX / Java。
+
+本机 Pi 也已注册 REA MCP，配置位于 `~/.pi/agent/mcp.json`，继续使用共享 skill。新机器使用 `rea setup --client pi --skill=false --dry-run --json` 核对计划，再执行 `rea setup --client pi --skill=false --yes`。用 `rea doctor --client pi --json` 检查注册，用 `pi mcp list` 验证 Pi 实际连接。已有 Pi 会话输入 `/reload` 加载变更，再用 `/mcp` 查看连接状态；项目内 `.pi/mcp.json` 的同名条目可能覆盖用户级配置。
+
+本机 OMP 默认 profile 也已注册 REA MCP，配置位于 `~/.omp/agent/mcp.json`，并单独将 `~/.omp/agent/skills/reverse-engineer-anything` 链接到本仓库。OMP 这条链接暂未纳入 `upstream.json` 的三端批量建链规则；新机器需单独执行：
+
+```bash
+rea setup --client omp --skill=false --dry-run --json
+rea setup --client omp --skill=false --yes
+mkdir -p ~/.omp/agent/skills
+ln -s ~/.agents/skills/reverse-engineer-anything ~/.omp/agent/skills/reverse-engineer-anything
+rea doctor --client omp --json
+```
+
+已有正确链接可跳过 `ln -s`；存在同名内容时先检查，不覆盖。重启 OMP 后直接描述分析目标即可。使用命名 profile 或自定义配置目录时，在同一 profile 环境执行 setup，并将 skill 链接放入该 profile 的 skills 目录。
+
+升级时同时核对 npm 版本与 `upstream.json` 中的 REA 发布提交，再重新验证。使用 nvm 切换或删除 Node 版本后，需要重新安装 CLI 并执行 setup，更新客户端中的绝对启动路径。
 
 ### 定期维护与 Git 同步
 

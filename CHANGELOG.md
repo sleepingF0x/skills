@@ -2,6 +2,38 @@
 
 记录会影响使用方式的更新。条目按本仓库完成同步的日期排列，说明新入口、所需输入、预期结果和迁移方法；仅有措辞调整的更新不逐文件展开。
 
+## 2026-10-24：接入 Pi 的 REA MCP
+
+创建 Pi 用户级 `~/.pi/agent/mcp.json` 的 REA stdio 注册，保留已有共享 skill 链接。README 补充新机器的安装命令和 Pi 的连接检查方式。已有会话使用 `/reload` 加载，再通过 `/mcp` 查看状态。
+
+## 2026-10-24：接入 OMP 的 REA MCP
+
+为 OMP 默认 profile 创建 `~/.omp/agent/mcp.json` 的 REA stdio 注册，并在 `~/.omp/agent/skills/reverse-engineer-anything` 建立指向本仓库的软链接。其余客户端的注册保持原样；OMP 链接单独维护，未扩大批量 skill 分发范围。多机配置命令补入 README。重启 OMP 后，新会话才能加载此次接入。
+
+## 2026-10-24：安装 REA 6.7.0 与共享 skill
+
+新增 `morluto/rea` 的 `reverse-engineer-anything`，固定至 6.7.0 发布提交 `27dc42d10249f0410904a75c0997842eb03b931c`，共 7 个文件；当前清单为 7 个来源、58 个 skill。Claude / Codex / Pi 共用仓库内实体文件和各自软链接。
+
+本机已全局安装 `rea-agents@6.7.0`，为 Codex、Claude Code 注册 MCP；配置文件留有备份，结构比对确认其他配置未改。安装使用 `--skill=false`，避免覆盖仓库管理的软链接。Pi 仅共享 skill，尚未注册 REA MCP。
+
+验证：`rea doctor --client codex --client claude_code --json` 的指定范围通过；`rea mcp doctor --json` 完成真实 stdio 握手、列出 207 个工具及 6 个提示，并通过 `binary_session` 请求。独立 JavaScript 样例生成了分析 Evidence。尚需重启客户端，确认新会话加载工具；原生反编译引擎未安装，此次验证不代表原生或 Android 分析已可用。
+
+其他机器需另装同版本 npm 包并执行本机 MCP setup；命令、输入与预期输出见 [README 的 REA 安装说明](README.md#rea每台机器单独安装运行时与-mcp)。skill 原样保留 GitHub 发布源码，npm 内置版仅增加工具数及示例版本替换；升级时需同时核对 CLI 与固定提交。
+
+## 2026-10-24：移除 Herdr skill
+
+按用户选择移除 `herdr` skill、`herdrdev/herdr` 同步来源、本机安装器中的对应记录，以及 Claude / Codex / Pi 的软链接。现有清单为 6 个来源、57 个受管 skill；Herdr 应用本身不作变更。移除前的文件保留本机恢复副本。
+
+其他机器拉取变更后运行 `python3 scripts/sync-skills.py --link` 清理旧链接。来源登记已移除，后续同步不会自动重新安装此 skill。
+
+## 2026-10-24：移除钉钉技能包及四个本地维护技能
+
+按用户选择移除全部 16 个 `dingtalk-*` 技能，以及 `accept-issue`、`humanizer-zh`、`implement-codex`、`land-issue`，总数由 78 个降为 58 个。同步清除 `upstream.json` 中的本地维护登记、Codex 对 `implement-codex` 的排除项和三端对应软链接。旧文件与链接保留在本机恢复目录，不随 Git 分发。
+
+这些入口不再由本仓库提供。其他机器拉取本次变更后，执行 `python3 scripts/sync-skills.py --link` 清理对应旧链接；该命令无需网络或新增依赖。清单已移除这些登记，后续按当前配置同步上游不会重新安装它们。此前 changelog 中有关钉钉入口的用法仅作为历史记录。
+
+Matt Pocock 的 27 个技能保持不变，已逐文件比对内容与可执行权限，均与作者上游 `main` 的 [5beb35b](https://github.com/mattpocock/skills/commit/5beb35b040e3de97e54fa9e386d7e42d15c295c2) 一致，engineering / productivity 范围没有缺失项。
+
 ## 2026-10-24：Kami 手机按钮改用自然宽度，补充页面设计规则
 
 同步中文、英文、韩文官网模板和设计说明，共 4 个文件，对齐上游 [44bf3a4](https://github.com/tw93/kami/commit/44bf3a4b8aa1d213297ed12defd6407b8679da6e)，版本号仍为 `1.18.0`。按钮变化来自 [d021681](https://github.com/tw93/kami/commit/d02168186e9c2028d5116b8f38611797134746c5)，设计规则来自 [4b55540](https://github.com/tw93/kami/commit/4b55540fe45df06f83aabdde9a2fc8ed2d620dd6)。
