@@ -6,7 +6,7 @@
 
 配套的工作流写在这里：[把 AI 编程从对话变成流程](https://foxden.vault2049.xyz/tech/agent-workflow/)。
 
-较大更新及更新后的具体用法见 [CHANGELOG.md](CHANGELOG.md)，包括 `read` 的 DeepSeek 可选入口，以及 Kami 官网按钮、手机布局、品牌色和字体的迁移说明。
+较大更新及更新后的具体用法见 [CHANGELOG.md](CHANGELOG.md)，包括 `read` 的 DeepSeek 可选入口，以及 Kami 官网布局与设计规则的迁移说明。
 
 ## 自建
 
