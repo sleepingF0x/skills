@@ -10,13 +10,14 @@
 
 ## 第三方
 
-下面 58 个不是我的作品，原样收录只是为了多机同步。版权归各自作者，随各自的许可证分发。要用请去上游仓库，那里才有更新。有上游的一律跟上游走：上游改了就同步，已确认删除或弃用的技能移除旧入口，改名则迁移到新入口。依赖特定服务版本的 skill 固定到对应发布提交，随服务一起升级。
+下面 59 个不是我的作品，原样收录只是为了多机同步。版权归各自作者，随各自的许可证分发。要用请去上游仓库，那里才有更新。有上游的一律跟上游走：上游改了就同步，已确认删除或弃用的技能移除旧入口，改名则迁移到新入口。依赖特定服务版本的 skill 固定到对应发布提交，随服务一起升级。
 
 | 来源 | skill |
 |---|---|
 | [mattpocock/skills](https://github.com/mattpocock/skills)（27） | `ask-matt` `code-review` `codebase-design` `diagnosing-bugs` `domain-modeling` `grill-me` `grill-with-docs` `grilling` `handoff` `implement` `implement-spec` `improve-codebase-architecture` `pr` `prototype` `research` `retro` `setup-matt-pocock-skills` `tdd` `teach` `to-questionnaire` `to-spec` `to-tickets` `triage` `wait-what` `wayfinder` `wizard` `writing-for-agents` |
 | [tw93/Waza](https://github.com/tw93/Waza)（8） | `check` `health` `hunt` `learn` `read` `think` `ui` `write` |
 | [tw93/kami](https://github.com/tw93/kami)（1） | `kami` |
+| [elayadesign/ai-design-skills](https://github.com/elayadesign/ai-design-skills)（1，MIT） | `landing-page-design`，附上游根目录的 `LICENSE` |
 | [morluto/rea](https://github.com/morluto/rea)（1，固定 REA 6.7.0 发布提交） | `reverse-engineer-anything` |
 | [microsoft/playwright-cli](https://github.com/microsoft/playwright-cli)（1，Apache-2.0） | `playwright-cli`，附 `LICENSE.txt` 和 `NOTICE.txt` |
 | [Agents365-ai/365-skills](https://github.com/Agents365-ai/365-skills)（1） | `excalidraw-skill` |

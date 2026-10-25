@@ -2,6 +2,18 @@
 
 记录会影响使用方式的更新。条目按本仓库完成同步的日期排列，说明新入口、所需输入、预期结果和迁移方法；仅有措辞调整的更新不逐文件展开。
 
+## 2026-10-25：安装 Landing Page Design
+
+新增 `elayadesign/ai-design-skills` 的 `landing-page-design`，安装内容对应上游提交 [1c1e97c](https://github.com/elayadesign/ai-design-skills/commit/1c1e97cb9878e236552c772092dda7adcdddbcb2)。技能原文保存在 `skills/landing-page-design/SKILL.md`，上游根目录的 MIT `LICENSE` 随附并通过 `keep` 保留。`upstream.json` 跟随 `main`，仅纳管此技能；当前共 8 个来源、59 个受管技能。
+
+用于从零构建落地页：先明确产品、受众、转化目标、品牌约束和已有素材，再输出页面大纲、首屏文案、收益、使用步骤、FAQ、SEO 建议与布局方案，最后逐段实现页面。设计规则包含字体、间距、圆角、背景、图标和动效；现有品牌约束应在请求中明确说明。安装本身不需要新增 CLI 或 MCP。
+
+Codex 下一轮可直接使用：`$landing-page-design 为我的产品设计落地页。产品是……，面向……，主要目标是……，品牌要求是……。先给结构和文案，再逐段实现。` Claude Code 使用 `/landing-page-design`，Pi 使用 `/skill:landing-page-design`；已有 Claude Code 会话重新开启，Pi 会话可 `/reload` 后使用。三个客户端共用本仓库的实体文件。
+
+本次新增独立入口，已有技能无需迁移。仅安装此仓库中的技能；文中提到的 `redesign-existing-projects` 来自另一个仓库，未作为依赖安装。实际页面的构建和浏览器验收需在使用技能时执行。
+
+验证：技能和许可证的 Git blob 哈希与上游一致，frontmatter 包含有效名称与描述；新来源可被维护脚本解析，在线内容比对通过。Claude / Codex / Pi 的新链接均指向同一实体目录，原有来源、链接配置和客户端条目保持不变，离线链接检查无待修复项；47 项维护脚本测试通过。此结果确认文件安装与链接，不代表已在客户端执行过页面生成。
+
 ## 2026-10-25：修复旧相对软链接清理时的误报
 
 同步远端提交 `6852bce` 的技能清单，接入 REA 6.7.0 共享入口，并清理已移除的 21 个技能在三端留下的旧链接。7 个来源、58 个受管技能与登记版本一致；Matt 的 engineering、productivity 仍对齐 `5beb35b`，REA 最新发布仍为固定的 `27dc42d`（6.7.0），不需要修改来源登记。

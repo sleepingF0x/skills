@@ -136,6 +136,25 @@
       "only": [
         "reverse-engineer-anything"
       ]
+    },
+    {
+      "repo": "elayadesign/ai-design-skills",
+      "ref": "main",
+      "roots": [
+        "skills"
+      ],
+      "managed": [
+        "landing-page-design"
+      ],
+      "only": [
+        "landing-page-design"
+      ],
+      "keep": {
+        "landing-page-design": [
+          "LICENSE"
+        ]
+      },
+      "note": "LICENSE 来自上游仓库根目录；保留随技能分发的 MIT 许可。仅跟随 landing-page-design，其他新增技能需另行选择。"
     }
   ],
   "untracked": {},
