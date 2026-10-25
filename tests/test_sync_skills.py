@@ -1251,6 +1251,86 @@ class SyncSkillsTests(unittest.TestCase):
                 self.assertEqual(sync_skills.sync_links(manifest, dry=True), (1, 0))
             self.assertFalse(agent.parent.exists())
 
+    def test_link_main_quarantines_relative_owned_links_and_is_idempotent(self):
+        for agent_path in [".claude/skills", ".codex/skills", ".pi/agent/skills"]:
+            for target_exists in [False, True]:
+                with self.subTest(agent=agent_path, target_exists=target_exists), tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    skills = root / ".agents" / "skills"
+                    skills.mkdir(parents=True)
+                    target = skills / "retired"
+                    if target_exists:
+                        target.mkdir()
+                        (target / "SKILL.md").write_text("keep excluded skill\n")
+                    agent = root / agent_path
+                    agent.mkdir(parents=True)
+                    link = agent / "retired"
+                    original_target = os.path.relpath(target, agent)
+                    link.symlink_to(original_target)
+                    original_inode = link.lstat().st_ino
+                    manifest = self.manifest(
+                        self.source(), {"agent": {"dir": str(agent), "exclude": ["retired"]}}
+                    )
+                    manifest_path = root / "upstream.json"
+                    manifest_path.write_text(json.dumps(manifest))
+                    with (
+                        mock.patch.object(sync_skills, "SKILLS", skills),
+                        mock.patch.object(sync_skills, "MANIFEST", manifest_path),
+                        mock.patch.object(sync_skills, "gh", side_effect=AssertionError("network access")),
+                        mock.patch.object(sync_skills.sys, "argv", ["sync-skills.py", "--link"]),
+                        redirect_stdout(io.StringIO()),
+                    ):
+                        sync_skills.main()
+                        sync_skills.main()
+                    self.assertFalse(link.is_symlink())
+                    recovered = [slot / "entry" for slot in (agent / ".sync-skills-recovery").glob("retired.*")]
+                    self.assertEqual(len(recovered), 1)
+                    held = recovered[0]
+                    self.assertEqual(os.readlink(held), original_target)
+                    self.assertEqual(held.lstat().st_ino, original_inode)
+                    if target_exists:
+                        self.assertEqual((target / "SKILL.md").read_text(), "keep excluded skill\n")
+                    else:
+                        self.assertFalse(target.exists())
+                    held.rename(link)
+                    self.assertEqual(link.resolve(), target.resolve())
+
+    def test_link_quarantine_checks_replaced_relative_target_at_original_parent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "home" / "workspace"
+            skills = root / "skills"
+            skills.mkdir(parents=True)
+            target = skills / "retired"
+            agent = root / "agent"
+            agent.mkdir()
+            link = agent / "retired"
+            link.symlink_to(os.path.relpath(target, agent))
+            manifest = self.manifest(
+                self.source(), {"codex": {"dir": str(agent), "exclude": []}}
+            )
+            real_rename = sync_skills.rename_noreplace
+            replaced_target = None
+
+            def replace_before_quarantine(src, dst):
+                nonlocal replaced_target
+                # This replacement looks owned only if resolved at the recovery path.
+                replaced_target = os.path.relpath(target, dst.parent)
+                self.assertNotEqual((agent / replaced_target).resolve(), target.resolve())
+                link.unlink()
+                link.symlink_to(replaced_target)
+                return real_rename(src, dst)
+
+            with (
+                mock.patch.object(sync_skills, "SKILLS", skills),
+                mock.patch.object(sync_skills, "rename_noreplace", side_effect=replace_before_quarantine),
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(sync_skills.sync_links(manifest), (0, 1))
+            recovered = [slot / "entry" for slot in (agent / ".sync-skills-recovery").glob("retired.*")]
+            self.assertEqual(len(recovered), 1)
+            self.assertEqual(os.readlink(recovered[0]), replaced_target)
+            self.assertFalse(link.is_symlink())
+
     def test_link_preserves_external_directories_but_blocks_name_conflicts(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -911,7 +911,10 @@ def quarantine_link(entry: Path, expected: Path):
         slot.rmdir()
         return True, None  # 另一个进程已移走，无内容可删。
 
-    owned = held.is_symlink() and Path(os.path.realpath(held)) == expected
+    # 相对链接仍以原父目录为基准；移入恢复目录不能改变归属判断。
+    owned = held.is_symlink() and Path(
+        os.path.realpath(entry.parent / os.readlink(held))
+    ) == expected
     if owned:
         return True, str(held)
 
