@@ -135,7 +135,8 @@
       ],
       "only": [
         "reverse-engineer-anything"
-      ]
+      ],
+      "note": "固定到 REA 6.7.0 发布提交，与 README 中的 CLI/MCP 版本配套；运行时一并升级并验证后再更新 ref。"
     },
     {
       "repo": "elayadesign/ai-design-skills",

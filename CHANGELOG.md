@@ -2,6 +2,48 @@
 
 记录会影响使用方式的更新。条目按本仓库完成同步的日期排列，说明新入口、所需输入、预期结果和迁移方法；仅有措辞调整的更新不逐文件展开。
 
+## 2026-10-26：更新状态反馈、跨语言排版与落地页动效
+
+先快进同步远端 `260aa61`，接入 `landing-page-design` 并补齐本机三端链接，再同步以下上游变化。当前为 8 个来源、59 个受管技能，日期按 Asia/Taipei 记录。
+
+### UI：根据实际反馈决定是否加动效
+
+同步 Waza [b3664a5](https://github.com/tw93/Waza/commit/b3664a561877f872d7ec14f2a8ec34023d00a484) 的 `ui` 及两个设计参考文件。选中、展开或加载状态立即出现，就已经回应了操作；只有结果存在等待间隙时才考虑补充按压反馈。高频、键盘和减少动态效果的交互不需要额外位移。两个对象交叉淡入淡出时，先检查对象身份、层叠与容器尺寸，不能用模糊掩盖重复内容或布局跳动。
+
+调用示例：`$ui 检查这个应用侧栏和按钮的反馈。保留已有的即时选中、展开与加载状态，只处理没有回应的等待间隙；检查键盘操作和减少动态效果设置，交付组件修改及验证结果。` Claude Code 用 `/ui`，Pi 用 `/skill:ui`。沿用项目现有 Web 或原生框架及构建工具，没有新增依赖。
+
+迁移时检查过去统一添加的 `scale(0.96)`，按控件实际反馈决定保留或移除。原生界面的减少动态效果分支需要去掉位移和缩放本身，仅取消动画插值仍可能产生跳变；进度提示应保留静态文字或明确状态。
+
+### Kami：调整中日韩字体和换行
+
+同步 [67e507e](https://github.com/tw93/kami/commit/67e507eaf95988d02731e76debbb0e5a8319e8f0) 的 `references/design.md`，版本仍为 `1.18.0`。新版说明区分网站字体子集与系统字体的顺序，并新增 CJK 行高、标点和行末规则；有填色的次按钮仍可保留规范中的细中性边框。
+
+调用示例：`$kami 按最新跨语言排版规则修订这个中日韩官网。保留品牌和文案，检查字体子集、中文引号与省略号、数字对齐和手机换行；交付 HTML/CSS、所需字体资源，以及 Chromium 和 WebKit 在 320 至 1600px 下的检查结果。` Claude Code 用 `/kami`，Pi 用 `/skill:kami`。需要页面源码、实际文案和可用字体；制作 WOFF2 子集还需要支持 WOFF2 的 fontTools/pyftsubset。商业页面继续使用已获授权的字体。
+
+迁移已有网站时，带 CJK 专用 `unicode-range` 的自托管子集放在 Charter 之前，系统 CJK 字体仍放在 Charter 之后；子集纳入中文引号和省略号 `U+201C-201D`、`U+2026`，保留 `halt` 特性。沿用实际字体文件和文案清单，分别为所需字重生成子集：
+
+```bash
+pyftsubset SourceHanSerifSC-Regular.otf --text-file=chars.txt --layout-features=kern,liga,halt --flavor=woff2 --output-file=serif-sc-regular.woff2
+```
+
+中日文页面去掉 `text-wrap: pretty/balance`、`line-break: strict`、`word-break: keep-all` 和人为粘连句尾字符的处理；行内标签保持 `display: inline` 与 `white-space: nowrap`，并按新说明设置 `hanging-punctuation: allow-end`。标题字距设为 0，长正文、列表和引导文字分别采用规则中的行高。韩文页面若不随站点提供衬线字体子集，采用系统无衬线字体。PDF 与内联 SVG 继续使用各自的字体顺序，不套用网站规则。
+
+### Landing Page Design：更新动效参数并补充来源署名
+
+同步 [a2735a3](https://github.com/elayadesign/ai-design-skills/commit/a2735a3eaf092eaaffb6dc17df25de33ef3bd048)。基础曲线改为 `cubic-bezier(0.22,1,0.36,1)`，位置变化使用 500ms；滚动区块上移 32px、持续 600 至 800ms，且只触发一次。移动菜单条目每隔 60ms 进入，整段序列上限为 400ms；减少动态效果时用透明度变化替代移动。上游同时重写示例文案规则，补上 taste-skill 的署名与 MIT 许可。
+
+调用示例：`$landing-page-design 为这个产品制作落地页。使用我提供的品牌、真实指标和素材，先给结构与文案，再逐段实现；按新版曲线和菜单时序制作动效，检查减少动态效果设置，交付页面源码和验证结果。` Claude Code 用 `/landing-page-design`，Pi 用 `/skill:landing-page-design`。沿用现有前端工具；原生 `IntersectionObserver` 可触发进入动画，Framer Motion 是已有项目的可选实现，不需要为同步技能新增 CLI 或 MCP。
+
+已有页面应替换旧的 700ms `transition-all` 和旧曲线，将移动效果限定为 `transform`、`opacity`，去掉旧的滚动模糊效果并设置只触发一次。技能文件末尾的署名许可与随附 `LICENSE` 一起保留。同上游新增的 `design-to-motion` 不在当前 `only` 清单中，本轮不安装；三个设计技能的规则也不应混成一套全局样式。
+
+### 固定版本与清理范围
+
+Matt 的 engineering、productivity 共 27 个技能仍与 [5beb35b](https://github.com/mattpocock/skills/commit/5beb35b040e3de97e54fa9e386d7e42d15c295c2) 一致，没有新增、改名或弃用。其他受管来源本轮也没有确认需要移除的入口。
+
+REA 已发布 [6.8.0](https://github.com/morluto/rea/releases/tag/rea-agents-6.8.0)，对应 `160d821`，技能文件也有更新；本仓库继续固定在与 CLI/MCP 配套的 6.7.0。升级需要同时更新运行时、来源提交和客户端注册，再验证真实调用。6.8.0 中 `analyze_function` 默认返回摘要，旧的完整内联结果需指定 `detail: "complete"`；`--format jsonl` 改为集合行及元数据控制记录，旧的整份 JSON 消费方式应改用 `--format json`。这些是后续配套升级需要迁移的接口，本轮没有安装或验证 6.8.0 运行时。
+
+验证：8 个受管来源均与登记版本一致，49 项维护脚本测试通过，三端各 59 个有效链接，Pi 原生加载器读取 59 个技能且无诊断。三个被替换的技能均保留完整恢复副本，旧的客户端恢复目录与本机安装记录未改。本轮更新技能文本和加载入口，未生成或部署网页，也未验证具体产品的渲染效果；实际采用排版或动效规则时，仍需用项目最终字体、文案和客户端完成上述验证。
+
 ## 2026-10-25：安装 Landing Page Design
 
 新增 `elayadesign/ai-design-skills` 的 `landing-page-design`，安装内容对应上游提交 [1c1e97c](https://github.com/elayadesign/ai-design-skills/commit/1c1e97cb9878e236552c772092dda7adcdddbcb2)。技能原文保存在 `skills/landing-page-design/SKILL.md`，上游根目录的 MIT `LICENSE` 随附并通过 `keep` 保留。`upstream.json` 跟随 `main`，仅纳管此技能；当前共 8 个来源、59 个受管技能。

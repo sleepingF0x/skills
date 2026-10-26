@@ -6,7 +6,7 @@
 
 配套的工作流写在这里：[把 AI 编程从对话变成流程](https://foxden.vault2049.xyz/tech/agent-workflow/)。
 
-较大更新及更新后的具体用法见 [CHANGELOG.md](CHANGELOG.md)，包括 `read` 的 DeepSeek 可选入口，以及 Kami 官网布局与设计规则的迁移说明。
+较大更新及更新后的具体用法见 [CHANGELOG.md](CHANGELOG.md)，包括 `ui` 的状态反馈、Kami 的中日韩排版、`landing-page-design` 的动效迁移，以及 `read` 的 DeepSeek 可选入口。三个设计技能各有适用规则，调用时明确目标技能及现有品牌约束。
 
 ## 第三方
 
@@ -103,6 +103,8 @@ rea doctor --client omp --json
 已有正确链接可跳过 `ln -s`；存在同名内容时先检查，不覆盖。重启 OMP 后直接描述分析目标即可。使用命名 profile 或自定义配置目录时，在同一 profile 环境执行 setup，并将 skill 链接放入该 profile 的 skills 目录。
 
 升级时同时核对 npm 版本与 `upstream.json` 中的 REA 发布提交，再重新验证。使用 nvm 切换或删除 Node 版本后，需要重新安装 CLI 并执行 setup，更新客户端中的绝对启动路径。
+
+定期维护会检查 REA 新发布；固定版本的技能与 CLI/MCP 需要一起升级并验证，不能只把 `ref` 改成最新提交。发现有不兼容调用变化的新版本时，在 changelog 记录升级条件，继续按当前固定版本同步。
 
 ### 定期维护与 Git 同步
 
